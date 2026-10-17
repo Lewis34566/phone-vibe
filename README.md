@@ -1,6 +1,6 @@
-# 📱 手机本机 Vibe Coding
+# 📱 手机版 Agent（手机本机 Vibe Coding）
 
-**在手机上用中文说需求，AI 自动写代码、运行、打开给你用。** 整套系统跑在你自己的 Android 手机里（Termux + Node.js），不需要电脑、不需要服务器。
+**在手机上用中文说需求，手机里的 AI Agent「Lewis」自动写代码、运行、打开给你用。** 整套系统跑在你自己的 Android 手机里（Termux + Node.js），不需要电脑、不需要服务器。
 
 ```
 你说："做一个记账小工具"
@@ -31,7 +31,11 @@
 pkg update -y
 pkg install -y git
 git clone https://github.com/Lewis34566/phone-vibe.git
+mv phone-vibe 手机版Agent && cd 手机版Agent
 ```
+
+> 想用英文目录名也可以：不执行上面 mv 那行，直接 `cd phone-vibe`。
+> ⚠️ 如果改了目录名，第七步开机自启脚本里的 `cd "$HOME/phone-vibe"` 也要同步改成新名字。
 
 > 如果 git clone 卡住/失败（GitHub 网络问题），用【方案 B】：
 > 在能访问 GitHub 的设备上下载本仓库 zip，用微信/数据线传到手机，
@@ -39,7 +43,7 @@ git clone https://github.com/Lewis34566/phone-vibe.git
 >
 > ```bash
 > pkg install -y unzip
-> cd ~ && unzip ~/storage/downloads/phone-vibe-main.zip && mv phone-vibe-main phone-vibe
+> cd ~ && unzip ~/storage/downloads/phone-vibe-main.zip && mv phone-vibe-main 手机版Agent
 > ```
 
 ---
@@ -47,7 +51,6 @@ git clone https://github.com/Lewis34566/phone-vibe.git
 ## 第三步：安装（约 3 分钟）
 
 ```bash
-cd phone-vibe
 bash install.sh
 ```
 
@@ -104,7 +107,7 @@ bash start.sh
 
 ```bash
 mkdir -p ~/.termux/boot
-cp ~/phone-vibe/scripts/termux-boot.sh ~/.termux/boot/
+cp ~/手机版Agent/scripts/termux-boot.sh ~/.termux/boot/
 chmod +x ~/.termux/boot/termux-boot.sh
 ```
 

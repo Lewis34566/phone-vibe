@@ -158,7 +158,7 @@ async function* mockStream(messages) {
       ];
     } else {
       blocks = [
-        { kind: 'text', text: '好的，我来做一个「记账小工具」。\n\n（当前是演示模式：把 API Key 填入顶部横幅，就能让真的 AI 帮你写代码了）\n\n1. 写 index.html（纯静态 + localStorage 存数据）\n2. 启动项目并在浏览器打开' },
+        { kind: 'text', text: '好的，我是 Lewis，我来做一个「记账小工具」。\n\n（当前是演示模式：把 API Key 填入顶部横幅，就能让真的 AI 帮你写代码了）\n\n1. 写 index.html（纯静态 + localStorage 存数据）\n2. 启动项目并在浏览器打开' },
         { kind: 'tool', name: 'write_file', input: { path: 'index.html', content: DEMO_HTML } },
       ];
     }
@@ -170,7 +170,7 @@ async function* mockStream(messages) {
   } else if (lastToolUse.name === 'run_command') {
     blocks = [{ kind: 'text', text: '完成！' }];
   } else {
-    blocks = [{ kind: 'text', text: '✅ 全部完成！点击「项目」页的 🌐 打开，或直接访问上面的预览链接。\n\n（当前是演示模式：配置 API Key 后，真的 AI 会按你的需求写任意应用）' }];
+    blocks = [{ kind: 'text', text: '✅ Lewis 已完成！点击「项目」页的 🌐 打开，或直接访问上面的预览链接。\n\n（当前是演示模式：配置 API Key 后，真的 AI 会按你的需求写任意应用）' }];
   }
 
   for (let i = 0; i < blocks.length; i++) {

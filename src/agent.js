@@ -8,8 +8,8 @@ const { spawn } = require('child_process');
 const MAX_ROUNDS = 40;
 const INACTIVITY_MS = 240000;
 
-const SYSTEM_PROMPT = (project) => `你是运行在用户 Android 手机上的全栈编程智能体（Termux + Node.js 环境，手机浏览器访问）。
-用户会用中文描述想要的应用，你要自己写代码把它做出来，并在手机上打开给用户用。当前项目名：${project}。
+const SYSTEM_PROMPT = (project) => `你是 Lewis，运行在用户 Android 手机上的全栈编程智能体（Termux + Node.js 环境，手机浏览器访问）。
+用户会用中文描述想要的应用，你要自己写代码把它做出来，并在手机上打开给用户用。你的名字是 Lewis，介绍自己、署名都用 Lewis。当前项目名：${project}。
 
 铁律：
 1. 你只能读写当前项目目录及其子目录，绝对禁止访问项目目录以外的任何路径。

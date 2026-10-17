@@ -327,7 +327,7 @@ ensureIcons(); // PWA 图标缺失时自动生成（无需手动跑脚本）
 server.listen(config.port, '0.0.0.0', () => {
   console.log('');
   console.log('════════════════════════════════════════════════');
-  console.log('  📱 手机本机 Vibe Coding 已启动');
+  console.log('  📱 手机版 Agent 已启动');
   console.log(`  本机访问:   http://localhost:${config.port}`);
   for (const ip of config.lanIPs()) {
     console.log(`  局域网访问: http://${ip}:${config.port}  (同一 WiFi 的手机/电脑可打开)`);

@@ -1,6 +1,6 @@
 {
-  "name": "Vibe 码 · 手机本机编程",
-  "short_name": "Vibe码",
+  "name": "手机版 Agent · 手机本机编程",
+  "short_name": "手机Agent",
   "description": "在手机上用中文说需求，AI 自动写代码并运行",
   "start_url": "/",
   "scope": "/",

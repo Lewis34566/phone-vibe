@@ -42,6 +42,12 @@ function scrollBottom(force) {
 function bubble(cls) {
   const div = document.createElement('div');
   div.className = 'msg ' + cls;
+  if (cls === 'ai') {
+    const name = document.createElement('div');
+    name.className = 'aname';
+    name.textContent = 'Lewis';
+    div.appendChild(name);
+  }
   $('#log').appendChild(div);
   return div;
 }

@@ -30,7 +30,7 @@ IP=$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.*src \([0-9.]*\).*/\1/p' |
 
 echo ""
 echo "======================================"
-echo "  📱 Vibe 码已启动"
+echo "  📱 手机版 Agent 已启动"
 echo "  本机访问:    http://localhost:$PORT"
 if [ -n "$IP" ]; then
   echo "  局域网访问:  http://$IP:$PORT"
