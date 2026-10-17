@@ -1,0 +1,15 @@
+{
+  "name": "phone-vibe",
+  "version": "1.0.0",
+  "description": "手机本机 Vibe Coding 系统：在 Android 手机上用中文说需求，Agent 自动写代码并运行",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/smoke.js",
+    "icons": "node scripts/gen-icons.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}
