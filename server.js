@@ -8,6 +8,7 @@ const store = require('./src/store');
 const projects = require('./src/projects');
 const { startSSE } = require('./src/sse');
 const { runAgent } = require('./src/agent');
+const { buildReleaseZip } = require('./scripts/make-release-zip');
 const { httpProxy, wsProxy } = require('./src/proxy');
 const { ensureIcons } = require('./scripts/gen-icons');
 
@@ -221,6 +222,21 @@ async function handleApi(req, res, pathname, method) {
       platform: process.platform,
       mock: config.isMock,
     });
+  }
+  // 电脑端服务提供安装包下载：手机同 WiFi 下 curl 直接更新，免微信/数据线
+  // （安装包已排除 .env，不会泄露 API Key）
+  if (pathname === '/api/package' && method === 'GET') {
+    try {
+      const { zip } = buildReleaseZip();
+      res.writeHead(200, {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': 'attachment; filename="phone-agent-update.zip"',
+        'Content-Length': zip.length,
+      });
+      return res.end(zip);
+    } catch (e) {
+      return sendJSON(res, 500, { error: '打包失败：' + e.message });
+    }
   }
   if (pathname === '/api/key' && method === 'POST') {
     const body = await readBody(req);

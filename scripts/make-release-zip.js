@@ -12,7 +12,8 @@ const out = process.argv[2]
   ? path.resolve(process.argv[2])
   : path.join(path.dirname(ROOT), '手机版Agent-安装包.zip');
 
-const SKIP = new Set(['.git', 'node_modules', 'data']);
+// .env 绝不能进安装包（里面有 API Key）；install.sh 会从 .env.example 生成
+const SKIP = new Set(['.git', 'node_modules', 'data', '.env']);
 
 function collect(dir, base) {
   const files = [];
@@ -28,10 +29,19 @@ function collect(dir, base) {
   return files;
 }
 
-const files = collect(ROOT, '');
-const zip = buildZip(files);
-const parent = path.dirname(out);
-if (!fs.existsSync(parent)) fs.mkdirSync(parent, { recursive: true }); // 盘符根目录已存在时 mkdir 会 EPERM
-fs.writeFileSync(out, zip);
-console.log(`已生成: ${out}`);
-console.log(`文件数: ${files.length}，大小: ${(zip.length / 1024).toFixed(0)} KB`);
+// 打包函数（供 CLI 和服务器 /api/package 接口共用）
+function buildReleaseZip() {
+  const files = collect(ROOT, '');
+  return { files, zip: buildZip(files) };
+}
+
+if (require.main === module) {
+  const { files, zip } = buildReleaseZip();
+  const parent = path.dirname(out);
+  if (!fs.existsSync(parent)) fs.mkdirSync(parent, { recursive: true }); // 盘符根目录已存在时 mkdir 会 EPERM
+  fs.writeFileSync(out, zip);
+  console.log(`已生成: ${out}`);
+  console.log(`文件数: ${files.length}，大小: ${(zip.length / 1024).toFixed(0)} KB`);
+}
+
+module.exports = { buildReleaseZip };
