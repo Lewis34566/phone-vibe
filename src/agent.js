@@ -123,7 +123,7 @@ async function runAgent({ session, project, message, apiKey, model, controller, 
           emit({ type: 'error', message: '输出达到上限，任务可能未完成——请再说一句「继续」让它接着做' });
         }
         const finalText = cleaned.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
-        emit({ type: 'done', text: finalText, usage });
+        emit({ type: 'done', text: finalText, usage, previewUrl: startedUrl });
         break;
       }
 

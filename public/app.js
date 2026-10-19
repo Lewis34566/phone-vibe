@@ -1,10 +1,10 @@
 'use strict';
-const VERSION = 'v1.3';
+const VERSION = 'v1.4';
 const $ = (s) => document.querySelector(s);
 const state = {
   projects: [], current: null, session: null,
   running: false, configured: true, lanIps: [], port: 8787,
-  stepEl: null, textEl: null, textRaw: '', typingEl: null,
+  stepEl: null, textEl: null, textRaw: '', typingEl: null, gotText: false,
 };
 
 const TOOL_LABELS = {
@@ -261,7 +261,7 @@ function renderEvent(evt, replay) {
   switch (evt.type) {
     case 'user': {
       userBubble(evt.text);
-      state.textEl = null; state.textRaw = ''; state.stepEl = null;
+      state.textEl = null; state.textRaw = ''; state.stepEl = null; state.gotText = false;
       updateLanding();
       scrollBottom(true);
       break;
@@ -275,12 +275,13 @@ function renderEvent(evt, replay) {
       }
       state.textRaw += evt.delta;
       state.textEl.innerHTML = md(state.textRaw);
+      state.gotText = true;
       state.stepEl = null;
       scrollBottom();
       break;
     }
     case 'tool_call': {
-      state.textEl = null; state.textRaw = '';
+      state.textEl = null; state.textRaw = ''; state.gotText = false;
       const b = aiBubble();
       const step = document.createElement('div');
       step.className = 'step running';
@@ -365,12 +366,24 @@ function renderEvent(evt, replay) {
     }
     case 'done': {
       state.textEl = null; state.textRaw = ''; state.stepEl = null;
-      if (evt.text && evt.text.trim()) {
+      // 文字已在流式输出时显示过，done 里不再重复渲染（修重复回答 bug）
+      if (evt.text && evt.text.trim() && !state.gotText) {
         const b = aiBubble();
         const d = document.createElement('div');
         d.className = 'bubble md';
         d.innerHTML = md(evt.text);
         b.appendChild(d);
+      }
+      state.gotText = false;
+      if (evt.previewUrl) {
+        const b = aiBubble();
+        const a = document.createElement('a');
+        a.className = 'open-btn';
+        a.href = evt.previewUrl;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.textContent = '🌐 打开刚做好的应用';
+        b.appendChild(a);
       }
       const hint = aiBubble();
       hint.innerHTML = '<div class="hint">💡 想继续完善？直接说，比如：加个筛选、改配色、支持导出</div>';

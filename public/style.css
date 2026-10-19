@@ -53,6 +53,8 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
 .md-li{margin:2px 0;padding-left:2px}
 .md-num{color:var(--accent2);font-weight:600;margin-right:4px}
 .hint{font-size:11.5px;color:var(--dim);background:var(--panel);border:1px dashed var(--border);border-radius:10px;padding:6px 10px}
+.open-btn{display:block;text-align:center;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff!important;text-decoration:none;border-radius:14px;padding:13px 18px;font-size:15px;font-weight:700;box-shadow:0 4px 16px rgba(109,93,240,.45);animation:fadeUp .3s ease}
+.open-btn:active{transform:scale(.97)}
 .error-bubble{border-color:var(--err);color:var(--err)}
 .usage{font-size:11px;color:var(--dim);padding:2px 6px}
 
