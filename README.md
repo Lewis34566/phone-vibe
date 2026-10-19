@@ -42,6 +42,7 @@ mv phone-vibe 手机版Agent && cd 手机版Agent
 > 在 Termux 里执行：
 >
 > ```bash
+> termux-setup-storage   # 先授权访问手机存储（弹窗点【允许】）
 > pkg install -y unzip
 > cd ~ && unzip ~/storage/downloads/手机版Agent-安装包.zip -d 手机版Agent && cd 手机版Agent
 > ```
