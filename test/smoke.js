@@ -166,7 +166,7 @@ async function main() {
 
     // 主页与静态资源
     r = await json(`${BASE}/`);
-    ok(r.status === 200 && typeof r.body === 'string' && r.body.includes('Vibe 码'), '23. 主页面可访问');
+    ok(r.status === 200 && typeof r.body === 'string' && r.body.includes('viewChat'), '23. 主页面可访问');
     r = await json(`${BASE}/manifest.json`);
     ok(r.status === 200 && r.body && r.body.short_name, '24. PWA manifest 可访问');
   } catch (e) {
