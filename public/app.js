@@ -9,6 +9,7 @@ const state = {
 const TOOL_LABELS = {
   list_dir: '📂 查看目录', read_file: '📄 读文件', write_file: '✍️ 写文件',
   delete_file: '🗑️ 删除', run_command: '⚙️ 执行命令', start_project: '🚀 启动项目', stop_project: '⏹️ 停止项目',
+  search_code: '🔍 搜索代码',
 };
 
 async function api(path, opts) {
@@ -25,12 +26,22 @@ function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-// 轻量 markdown：代码块 + 行内代码 + 粗体
+// Markdown 渲染：代码块（占位符保护）/ 标题 / 列表 / 粗体 / 行内代码
 function md(s) {
-  let t = esc(s);
-  t = t.replace(/```(\w*)\n?([\s\S]*?)```/g, (m, lang, code) => '<pre class="md-code">' + code + '</pre>');
+  const codes = [];
+  const tokenized = esc(s).replace(/```([\s\S]*?)```/g, (m, code) => {
+    codes.push('<pre class="md-code">' + code.replace(/^\w*\n/, '').replace(/\n+$/, '') + '</pre>');
+    return '\u0000C' + (codes.length - 1) + '\u0000';
+  });
+  let t = tokenized;
+  t = t.replace(/^### (.+)$/gm, '<div class="md-h3">$1</div>');
+  t = t.replace(/^## (.+)$/gm, '<div class="md-h2">$1</div>');
+  t = t.replace(/^# (.+)$/gm, '<div class="md-h1">$1</div>');
+  t = t.replace(/^(\d+)\. (.+)$/gm, '<div class="md-li"><span class="md-num">$1.</span> $2</div>');
+  t = t.replace(/^[-•] (.+)$/gm, '<div class="md-li"><span class="md-num">•</span> $1</div>');
+  t = t.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
   t = t.replace(/`([^`\n]+)`/g, '<code>$1</code>');
-  t = t.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+  t = t.replace(/\u0000C(\d+)\u0000/g, (m, i) => codes[+i] || '');
   return t;
 }
 
@@ -334,6 +345,8 @@ function renderEvent(evt, replay) {
         d.innerHTML = md(evt.text);
         b.appendChild(d);
       }
+      const hint = bubble('ai');
+      hint.innerHTML = '<div class="hint">💡 想继续完善？直接说，比如：加个筛选、改配色、支持导出</div>';
       if (evt.usage && evt.usage.input > 0) {
         const b = bubble('ai');
         b.innerHTML = '<div class="usage">本次消耗 ' + evt.usage.input + ' 输入 / ' + evt.usage.output + ' 输出 token</div>';

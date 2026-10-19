@@ -76,6 +76,19 @@ const TOOL_DEFS = [
     description: '停止当前项目',
     input_schema: { type: 'object', properties: {} },
   },
+  {
+    name: 'search_code',
+    description: '在项目文件里搜索文本（类似 grep），用于修改已有项目时定位代码',
+    input_schema: {
+      type: 'object',
+      properties: {
+        pattern: { type: 'string', description: '要搜索的文本，如函数名、颜色值、文案' },
+        path: { type: 'string', description: '限定子目录，默认整个项目' },
+        max_results: { type: 'number', description: '最多返回条数，默认 30' },
+      },
+      required: ['pattern'],
+    },
+  },
 ];
 
 // ---------------- 危险命令判定 ----------------
@@ -261,6 +274,44 @@ async function executeTool(name, input, ctx) {
     case 'stop_project': {
       await projects.stopProject(ctx.projectName);
       return { ok: true, summary: '已停止', output: '', data: {} };
+    }
+    case 'search_code': {
+      const pattern = String(input.pattern || '');
+      if (!pattern) return { ok: false, summary: '缺少搜索内容', error: 'empty pattern', output: '' };
+      const base = resolveIn(projectDir, input.path || '.');
+      const max = Math.min(Math.max(parseInt(input.max_results, 10) || 30, 1), 100);
+      const matches = [];
+      const walk = (dir) => {
+        if (matches.length >= max) return;
+        let ents;
+        try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+        for (const e of ents) {
+          if (matches.length >= max) return;
+          if (e.name === 'node_modules' || e.name === '.git' || e.name === 'data') continue;
+          const full = path.join(dir, e.name);
+          if (e.isDirectory()) walk(full);
+          else if (e.isFile() && e.name.endsWith('.js') || e.isFile() && e.name.endsWith('.html') || e.isFile() && e.name.endsWith('.css') || e.isFile() && e.name.endsWith('.json') || e.isFile() && e.name.endsWith('.md')) {
+            let text;
+            try { text = fs.readFileSync(full, 'utf8'); } catch { continue; }
+            if (text.length > 200 * 1024) continue;
+            const lines = text.split(/\r?\n/);
+            for (let i = 0; i < lines.length && matches.length < max; i++) {
+              if (lines[i].includes(pattern)) {
+                matches.push({
+                  file: path.relative(projectDir, full).split(path.sep).join('/'),
+                  line: i + 1,
+                  text: lines[i].trim().slice(0, 200),
+                });
+              }
+            }
+          }
+        }
+      };
+      walk(base);
+      const output = matches.length
+        ? matches.map((m) => `${m.file}:${m.line}  ${m.text}`).join('\n')
+        : `（没有找到「${pattern}」）`;
+      return { ok: true, summary: `找到 ${matches.length} 处`, output, data: { matches } };
     }
     default:
       return { ok: false, summary: `未知工具 ${name}`, error: `unknown tool: ${name}`, output: '' };

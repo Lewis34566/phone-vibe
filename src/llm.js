@@ -43,6 +43,7 @@ async function* streamDeepSeek({ apiKey, model, system, messages, tools, maxToke
       function: { name: t.name, description: t.description, parameters: t.input_schema },
     })),
     max_tokens: maxTokens || 8192,
+    temperature: 0.7, // 低温度：工具调用更可靠、代码更稳
     stream: true,
     stream_options: { include_usage: true },
   };
@@ -167,15 +168,25 @@ h1{font-size:22px;margin:8px 0 16px;text-align:center}
 .balance{background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:16px;padding:20px;text-align:center;margin-bottom:16px}
 .balance .num{font-size:34px;font-weight:700;margin-top:6px}
 .balance .sub{font-size:12px;opacity:.85;margin-top:8px;display:flex;justify-content:space-around}
-form{display:grid;grid-template-columns:1fr 90px 90px;gap:8px;margin-bottom:16px}
-input,select,button{font-size:16px;padding:10px;border-radius:10px;border:1px solid #2a2f3e;background:#1a1e2b;color:#e6e8ee}
-button{background:#6366f1;border:none;color:#fff;font-weight:600}
-.item{display:flex;justify-content:space-between;align-items:center;padding:12px;border-radius:10px;background:#1a1e2b;margin-bottom:8px}
-.item .tag{font-size:12px;color:#9aa3b5}
+form{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
+form input,form select,form button{font-size:16px;padding:11px;border-radius:12px;border:1px solid #2a2f3e;background:#1a1e2b;color:#e6e8ee}
+#cat{grid-column:span 2}
+form button{grid-column:span 2;background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;color:#fff;font-weight:700}
+.card{background:#1a1e2b;border-radius:14px;padding:14px;margin-bottom:12px}
+.card h2{font-size:14px;color:#9aa3b5;margin-bottom:10px;font-weight:600}
+.chart-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12.5px}
+.chart-row .name{width:34px;flex:none;color:#c3c9d8}
+.chart-row .bar{flex:1;height:14px;background:#232a3b;border-radius:7px;overflow:hidden}
+.chart-row .bar i{display:block;height:100%;border-radius:7px;background:linear-gradient(90deg,#6366f1,#8b5cf6)}
+.chart-row .val{width:52px;flex:none;text-align:right;color:#9aa3b5}
+.item{display:flex;justify-content:space-between;align-items:center;padding:11px 2px;border-bottom:1px solid #232a3b}
+.item:last-child{border-bottom:none}
+.item .tag{display:inline-block;font-size:11px;background:#232a3b;color:#9fb0ff;border-radius:6px;padding:2px 8px;margin-right:6px}
+.item .time{font-size:11px;color:#6b7280}
 .item .money{font-weight:700}
 .money.in{color:#4ade80}
 .money.out{color:#f87171}
-.empty{text-align:center;color:#6b7280;padding:30px 0}
+.empty{text-align:center;color:#6b7280;padding:26px 0}
 </style>
 </head>
 <body>
@@ -184,24 +195,31 @@ button{background:#6366f1;border:none;color:#fff;font-weight:600}
 <div class="sub"><span>收入 <b id="inc" style="color:#4ade80">¥0</b></span><span>支出 <b id="exp" style="color:#f87171">¥0</b></span></div></div>
 <form id="f">
 <input id="amount" type="number" step="0.01" min="0.01" placeholder="金额" required>
-<select id="type"><option value="out">支出</option><option value="in">收入</option></select>
+<select id="type"><option value="out">💸 支出</option><option value="in">💰 收入</option></select>
+<select id="cat">
+<option>餐饮</option><option>交通</option><option>购物</option><option>娱乐</option><option>其他</option>
+</select>
 <button type="submit">记一笔</button>
 </form>
-<div id="list"></div>
+<div class="card" id="chartCard" style="display:none"><h2>📊 本月支出分布</h2><div id="chart"></div></div>
+<div class="card"><h2>📒 明细</h2><div id="list"></div></div>
 <script>
-var KEY='jizhang_items';
-var items=JSON.parse(localStorage.getItem(KEY)||'[]');
+var KEY='jizhang_items_v2';
+var CATS=['餐饮','交通','购物','娱乐','其他'];
+function loadData(){return JSON.parse(localStorage.getItem(KEY)||'[]');}
+function saveData(){localStorage.setItem(KEY,JSON.stringify(items));}
+var items=loadData();
 function fmt(n){return '¥'+(n||0).toFixed(2);}
 function render(){
-  var inc=0,exp=0;
+  var inc=0,exp=0,byCat={};
   var list=document.getElementById('list');
   list.innerHTML='';
   items.slice().reverse().forEach(function(it){
-    if(it.type==='in')inc+=+it.amount;else exp+=+it.amount;
+    if(it.type==='in')inc+=+it.amount;else{exp+=+it.amount;byCat[it.cat]=(byCat[it.cat]||0)+(+it.amount);}
     var div=document.createElement('div');div.className='item';
     var d=new Date(it.time).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
     var amt=(+it.amount).toFixed(2);
-    div.innerHTML='<div><div>'+it.note+'</div><div class="tag">'+d+'</div></div>'+
+    div.innerHTML='<div><span class="tag">'+it.cat+'</span><span class="time">'+d+'</span></div>'+
       '<div class="money '+it.type+'">'+(it.type==='in'?'+':'-')+amt+'</div>';
     list.appendChild(div);
   });
@@ -209,12 +227,23 @@ function render(){
   document.getElementById('total').textContent=fmt(inc-exp);
   document.getElementById('inc').textContent=fmt(inc);
   document.getElementById('exp').textContent=fmt(exp);
-  localStorage.setItem(KEY,JSON.stringify(items));
+  var chart=document.getElementById('chart');
+  chart.innerHTML='';
+  var rows=CATS.map(function(c){return {name:c,val:byCat[c]||0};})
+    .filter(function(r){return r.val>0;})
+    .sort(function(a,b){return b.val-a.val;});
+  var max=rows.length?rows[0].val:1;
+  rows.slice(0,5).forEach(function(r){
+    var row=document.createElement('div');row.className='chart-row';
+    row.innerHTML='<span class="name">'+r.name+'</span><span class="bar"><i style="width:'+Math.round(r.val/max*100)+'%"></i></span><span class="val">'+r.val.toFixed(0)+'</span>';
+    chart.appendChild(row);
+  });
+  document.getElementById('chartCard').style.display=rows.length?'':'none';
+  saveData();
 }
 document.getElementById('f').addEventListener('submit',function(e){
   e.preventDefault();
-  var note=prompt('备注（如：午饭 / 工资）：')||'日常';
-  items.push({type:document.getElementById('type').value,amount:+document.getElementById('amount').value,note:note,time:Date.now()});
+  items.push({type:document.getElementById('type').value,cat:document.getElementById('cat').value,amount:+document.getElementById('amount').value,time:Date.now()});
   document.getElementById('amount').value='';
   render();
 });
@@ -250,7 +279,7 @@ async function* mockStream(messages) {
       ];
     } else {
       blocks = [
-        { kind: 'text', text: '好的，我是 Lewis，我来做一个「记账小工具」。\n\n（当前是演示模式：把 API Key 填入顶部横幅，就能让真的 AI 帮你写代码了）\n\n1. 写 index.html（纯静态 + localStorage 存数据）\n2. 启动项目并在浏览器打开' },
+        { kind: 'text', text: '好的，我是 Lewis。**方案：**\n1. 单页应用 index.html（HTML/CSS/JS 全内联，零依赖）\n2. 数据存 localStorage：分类、金额、时间\n3. 功能：记一笔、月度结余、分类统计条形图\n4. 写完自检 → 启动 → 打开预览\n\n（当前是演示模式：填入 DeepSeek API Key 后，真的 AI 会按你的任意需求做软件）' },
         { kind: 'tool', name: 'write_file', input: { path: 'index.html', content: DEMO_HTML } },
       ];
     }
