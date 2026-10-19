@@ -1,5 +1,5 @@
 /* Service Worker：缓存应用外壳，实现"添加到主屏幕"离线可用 */
-const CACHE = 'phone-vibe-v1';
+const CACHE = 'phone-vibe-v3';
 const ASSETS = ['/', '/index.html', '/app.js', '/style.css', '/manifest.json', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {

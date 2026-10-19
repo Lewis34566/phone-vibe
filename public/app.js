@@ -1,15 +1,21 @@
 'use strict';
+const VERSION = 'v1.3';
 const $ = (s) => document.querySelector(s);
 const state = {
   projects: [], current: null, session: null,
   running: false, configured: true, lanIps: [], port: 8787,
-  stepEl: null, textEl: null, textRaw: '',
+  stepEl: null, textEl: null, textRaw: '', typingEl: null,
 };
 
 const TOOL_LABELS = {
-  list_dir: '📂 查看目录', read_file: '📄 读文件', write_file: '✍️ 写文件',
-  delete_file: '🗑️ 删除', run_command: '⚙️ 执行命令', start_project: '🚀 启动项目', stop_project: '⏹️ 停止项目',
-  search_code: '🔍 搜索代码',
+  list_dir: '查看目录', read_file: '读文件', write_file: '写文件',
+  delete_file: '删除', run_command: '执行命令', start_project: '启动项目', stop_project: '停止项目',
+  search_code: '搜索代码',
+};
+const TOOL_ICONS = {
+  list_dir: '📂', read_file: '📄', write_file: '✍️',
+  delete_file: '🗑️', run_command: '⚙️', start_project: '🚀', stop_project: '⏹️',
+  search_code: '🔍',
 };
 
 async function api(path, opts) {
@@ -24,6 +30,15 @@ async function api(path, opts) {
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+let toastTimer = null;
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.remove('hidden');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.add('hidden'), 2200);
 }
 
 // Markdown 渲染：代码块（占位符保护）/ 标题 / 列表 / 粗体 / 行内代码
@@ -50,167 +65,185 @@ function scrollBottom(force) {
   if (force || log.scrollTop + log.clientHeight >= log.scrollHeight - 160) log.scrollTop = log.scrollHeight;
 }
 
-function bubble(cls) {
+function aiBubble() {
   const div = document.createElement('div');
-  div.className = 'msg ' + cls;
-  if (cls === 'ai') {
-    const name = document.createElement('div');
-    name.className = 'aname';
-    name.textContent = 'Lewis';
-    div.appendChild(name);
-  }
+  div.className = 'msg ai';
+  div.innerHTML = '<div class="avatar">L</div>';
+  $('#log').appendChild(div);
+  return div;
+}
+function userBubble(text) {
+  const div = document.createElement('div');
+  div.className = 'msg user';
+  div.innerHTML = '<div class="bubble">' + esc(text) + '</div>';
   $('#log').appendChild(div);
   return div;
 }
 
+function updateLanding() {
+  const log = $('#log');
+  const hasContent = [...log.children].some((c) => c.id !== 'landing');
+  const landing = $('#landing');
+  if (landing) landing.classList.toggle('hidden', hasContent);
+}
+
 function clearLog() {
-  $('#log').innerHTML = '';
-  state.textEl = null; state.textRaw = ''; state.stepEl = null;
+  const log = $('#log');
+  [...log.children].forEach((c) => { if (c.id !== 'landing') c.remove(); });
+  state.textEl = null; state.textRaw = ''; state.stepEl = null; state.typingEl = null;
+  updateLanding();
 }
 
-// ---------- 视图切换 ----------
-function show(view) {
-  $('#viewChat').classList.toggle('hidden', view !== 'chat');
-  $('#viewProjects').classList.toggle('hidden', view !== 'projects');
-  $('#btnProjects').classList.toggle('active', view === 'projects');
+// ---------- 正在输入动画 ----------
+function showTyping() {
+  hideTyping();
+  const b = aiBubble();
+  const t = document.createElement('div');
+  t.className = 'typing';
+  t.innerHTML = '<i></i><i></i><i></i>';
+  b.appendChild(t);
+  state.typingEl = b;
+  scrollBottom(true);
 }
-$('#btnProjects').addEventListener('click', () => {
-  show($('#viewProjects').classList.contains('hidden') ? 'projects' : 'chat');
-  if (!$('#viewProjects').classList.contains('hidden')) loadProjects();
-});
+function hideTyping() {
+  if (state.typingEl) { state.typingEl.remove(); state.typingEl = null; }
+}
 
-// ---------- 项目列表 ----------
+// ---------- 底部抽屉 ----------
+function showSheet(html) {
+  $('#sheetCard').innerHTML = html;
+  $('#sheet').classList.remove('hidden');
+}
+function hideSheet() { $('#sheet').classList.add('hidden'); }
+$('#sheet').addEventListener('click', (e) => { if (e.target.id === 'sheet') hideSheet(); });
+
+// ---------- 项目列表（抽屉） ----------
 async function loadProjects() {
-  try {
-    state.projects = await api('/api/projects');
-  } catch (e) { state.projects = []; }
-  renderProjects();
+  try { state.projects = await api('/api/projects'); } catch { state.projects = []; }
 }
 
 function renderProjects() {
-  const list = $('#projectList');
-  list.innerHTML = '';
-  if (!state.projects.length) {
-    list.innerHTML = '<div class="empty">还没有项目。新建一个，或回到聊天直接说需求（会自动建项目）。</div>';
-  }
+  let html = `<div class="sheet-title">📁 项目 <button class="sheet-close" id="sheetClose">✕</button></div>
+    <div class="newproj"><input id="newProjectName" placeholder="新项目名，如：记账本"><button id="btnNewProject">＋ 新建</button></div>`;
+  if (!state.projects.length) html += '<div class="empty">还没有项目。新建一个，或直接回聊天说需求（会自动建项目）。</div>';
   for (const p of state.projects) {
-    const card = document.createElement('div');
-    card.className = 'project-card';
-    const badge = p.running
-      ? `<span class="badge on">● 运行中${p.port ? ' :' + p.port : ''}</span>`
-      : '<span class="badge">○ 未运行</span>';
-    card.innerHTML = `
-      <div class="pc-head"><div class="pc-title">${esc(p.title)}</div>${badge}</div>
-      <div class="pc-desc">${esc(p.desc || p.name)}</div>
-      <div class="pc-actions">
-        ${p.running ? '<button data-act="stop">⏹ 停止</button>' : '<button data-act="run">▶ 运行</button>'}
-        <button data-act="open">🌐 打开</button>
-        <button data-act="export">⬇ 导出</button>
-        <button data-act="chat">💬 用 AI 改</button>
-        <button data-act="del" class="danger">🗑</button>
-      </div>`;
-    card.addEventListener('click', (e) => {
-      const act = e.target.dataset.act;
-      if (act) projectAction(p, act);
-    });
-    list.appendChild(card);
+    html += `<div class="prow" data-name="${esc(p.name)}">
+      <span class="pd ${p.running ? 'on' : ''}"></span>
+      <div class="pi"><div class="pt">${esc(p.title)}</div><div class="ps">${p.running ? '● 运行中' + (p.port ? ' :' + p.port : '') : '未运行'} · ${esc(p.desc || p.name)}</div></div>
+      <div class="pacts">
+        ${p.running ? '<button class="pbtn on" data-act="stop">⏹</button>' : '<button class="pbtn" data-act="run">▶</button>'}
+        <button class="pbtn" data-act="open">🌐</button>
+        <button class="pbtn" data-act="export">⬇</button>
+        <button class="pbtn danger" data-act="del">🗑</button>
+      </div></div>`;
   }
-  $('#lanInfo').innerHTML = state.lanIps.length
-    ? `📶 局域网访问：${state.lanIps.map((ip) => `http://${ip}:${state.port}`).join('　')}`
-    : '';
+  showSheet(html);
+  $('#sheetClose').addEventListener('click', hideSheet);
+  $('#btnNewProject').addEventListener('click', async () => {
+    const name = $('#newProjectName').value.trim();
+    if (!name) return toast('先输入项目名');
+    try {
+      const r = await api('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+      await loadProjects();
+      await selectProject(r.name);
+      hideSheet();
+      toast('项目已创建：' + r.name);
+    } catch (e) { toast('创建失败：' + e.message); }
+  });
+  for (const row of document.querySelectorAll('.prow')) {
+    row.addEventListener('click', async (e) => {
+      const act = e.target.dataset.act;
+      const name = row.dataset.name;
+      const p = state.projects.find((x) => x.name === name);
+      if (!p) return;
+      if (act) { e.stopPropagation(); projectAction(p, act); return; }
+      await selectProject(p.name);
+      hideSheet();
+      toast('已切换到：' + p.title);
+    });
+  }
 }
 
 async function projectAction(p, act) {
   try {
     if (act === 'run') {
+      toast('正在启动 ' + p.title + '…');
       const r = await api(`/api/project/${encodeURIComponent(p.name)}/run`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'auto', install: true }),
       });
       if (r.ok === false) throw new Error(r.error || '启动失败');
       await loadProjects();
-      if (r.error) alert('进程已启动，但：' + r.error);
+      renderProjects();
+      if (r.error) toast(r.error);
       else {
         const w = window.open('/p/' + encodeURIComponent(p.name) + '/', '_blank');
-        if (!w) location.href = '/p/' + encodeURIComponent(p.name) + '/'; // PWA 全屏模式下打开失败则直接跳转
+        if (!w) location.href = '/p/' + encodeURIComponent(p.name) + '/';
       }
     } else if (act === 'stop') {
       await api(`/api/project/${encodeURIComponent(p.name)}/stop`, { method: 'POST' });
       await loadProjects();
+      renderProjects();
+      toast('已停止');
     } else if (act === 'open') {
       const w = window.open('/p/' + encodeURIComponent(p.name) + '/', '_blank');
       if (!w) location.href = '/p/' + encodeURIComponent(p.name) + '/';
     } else if (act === 'export') {
+      toast('正在打包下载…');
       window.location.href = `/api/project/${encodeURIComponent(p.name)}/export`;
-    } else if (act === 'chat') {
-      await selectProject(p.name);
-      show('chat');
     } else if (act === 'del') {
-      if (confirm(`确定删除项目「${p.title}」？项目文件会全部删除，不可恢复。`)) {
+      if (confirm(`确定删除项目「${p.title}」？文件全部删除，不可恢复。`)) {
         await api(`/api/project/${encodeURIComponent(p.name)}/delete`, { method: 'POST' });
-        if (state.current === p.name) { state.current = null; state.session = null; clearLog(); $('#projectName').textContent = '—'; }
+        if (state.current === p.name) { state.current = null; state.session = null; clearLog(); updatePill(); }
         await loadProjects();
+        renderProjects();
+        toast('已删除');
       }
     }
-  } catch (e) {
-    alert(e.message);
-  }
+  } catch (e) { toast(e.message); }
 }
 
-$('#newProjectForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const name = $('#newProjectName').value.trim();
-  if (!name) return;
-  try {
-    const r = await api('/api/projects', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
-    });
-    $('#newProjectName').value = '';
-    await loadProjects();
-    await selectProject(r.name);
-    show('chat');
-  } catch (err) { alert(err.message); }
-});
+async function openProjects() {
+  await loadProjects();
+  renderProjects();
+}
+$('#projectPill').addEventListener('click', openProjects);
 
-// ---------- 会话历史 ----------
+function updatePill() {
+  $('#pname').textContent = state.current || '选择项目';
+}
+
+// ---------- 会话历史（抽屉） ----------
 async function openHistory() {
   let sessions = [];
   try { sessions = await api('/api/history?project=' + encodeURIComponent(state.current || '')); } catch {}
-  const card = $('#modalCard');
-  card.innerHTML = '<div class="modal-title">🕘 会话历史（' + esc(state.current || '全部') + '）<button class="close" id="mClose">✕</button></div>';
-  if (!sessions.length) card.innerHTML += '<div class="empty">还没有历史会话</div>';
-  const list = document.createElement('div');
+  let html = `<div class="sheet-title">🕘 历史会话 <button class="sheet-close" id="sheetClose">✕</button></div>
+    <div class="newproj"><button id="btnNewSession" style="flex:1">＋ 新会话</button></div>`;
+  if (!sessions.length) html += '<div class="empty">还没有历史会话</div>';
   for (const s of sessions) {
-    const row = document.createElement('div');
-    row.className = 'hist-row';
-    row.innerHTML = `<div class="hist-main"><div class="hist-title">${esc(s.title)}</div>
-      <div class="hist-time">${new Date(s.updatedAt).toLocaleString('zh-CN')}</div></div>
-      <button data-act="del" title="删除">🗑</button>`;
+    html += `<div class="hrow" data-id="${s.id}">
+      <div class="hi"><div class="ht">${esc(s.title)}</div><div class="hs">${new Date(s.updatedAt).toLocaleString('zh-CN')}</div></div>
+      <button class="pbtn danger" data-act="del">🗑</button></div>`;
+  }
+  showSheet(html);
+  $('#sheetClose').addEventListener('click', hideSheet);
+  const btnNew = $('#btnNewSession');
+  if (btnNew) btnNew.addEventListener('click', () => { state.session = null; clearLog(); hideSheet(); toast('已开启新会话'); });
+  for (const row of document.querySelectorAll('.hrow')) {
     row.addEventListener('click', async (e) => {
       if (e.target.dataset.act === 'del') {
         if (!confirm('删除这个会话？')) return;
-        await api('/api/history/' + s.id, { method: 'DELETE' });
-        if (state.session && state.session.id === s.id) { state.session = null; clearLog(); }
+        await api('/api/history/' + row.dataset.id, { method: 'DELETE' });
+        if (state.session && state.session.id === row.dataset.id) { state.session = null; clearLog(); }
         return openHistory();
       }
       try {
-        await loadSession(s.id);
-        hideModal();
-      } catch (err) { alert(err.message); }
+        await loadSession(row.dataset.id);
+        hideSheet();
+      } catch (err) { toast(err.message); }
     });
-    list.appendChild(row);
   }
-  card.appendChild(list);
-  $('#modal').classList.remove('hidden');
 }
-
-function hideModal() { $('#modal').classList.add('hidden'); }
-$('#modal').addEventListener('click', (e) => {
-  if (e.target.id === 'modal' || e.target.id === 'mClose') hideModal();
-});
 $('#btnHistory').addEventListener('click', openHistory);
 
 async function loadSession(id) {
@@ -218,22 +251,24 @@ async function loadSession(id) {
   state.session = s;
   clearLog();
   for (const evt of s.events || []) renderEvent(evt, true);
+  updateLanding();
   scrollBottom(true);
 }
 
 // ---------- 事件渲染 ----------
 function renderEvent(evt, replay) {
+  hideTyping();
   switch (evt.type) {
     case 'user': {
-      const b = bubble('user');
-      b.innerHTML = '<div class="bubble">' + esc(evt.text) + '</div>';
+      userBubble(evt.text);
       state.textEl = null; state.textRaw = ''; state.stepEl = null;
+      updateLanding();
       scrollBottom(true);
       break;
     }
     case 'text': {
       if (!state.textEl) {
-        const b = bubble('ai');
+        const b = aiBubble();
         state.textEl = document.createElement('div');
         state.textEl.className = 'bubble md';
         b.appendChild(state.textEl);
@@ -246,25 +281,23 @@ function renderEvent(evt, replay) {
     }
     case 'tool_call': {
       state.textEl = null; state.textRaw = '';
-      const b = bubble('ai');
+      const b = aiBubble();
       const step = document.createElement('div');
-      step.className = 'step';
-      const label = TOOL_LABELS[evt.name] || evt.name;
-      let detail = '';
+      step.className = 'step running';
       const inp = evt.input || {};
-      if (evt.name === 'write_file') {
-        detail = esc(inp.path || '');
-        if (inp.content) detail += '<pre class="preview">' + esc(inp.content) + '</pre>';
-      } else if (evt.name === 'run_command') {
-        detail = '<pre class="cmd">$ ' + esc(inp.command || '') + '</pre>';
-      } else if (evt.name === 'start_project') {
-        detail = '类型：' + esc(inp.type || 'auto') + (inp.install_deps ? '（装依赖）' : '');
-      } else if (inp.path) {
-        detail = esc(inp.path);
-      }
-      step.innerHTML = `<div class="step-head"><span class="step-label">${label}</span><span class="step-status">…</span></div>
-        ${detail ? '<div class="step-detail">' + detail + '</div>' : ''}
-        <pre class="step-out hidden"></pre>`;
+      let target = '';
+      if (evt.name === 'write_file' || evt.name === 'read_file' || evt.name === 'delete_file') target = inp.path || '';
+      else if (evt.name === 'run_command') target = String(inp.command || '').slice(0, 40);
+      else if (evt.name === 'list_dir') target = inp.path || '根目录';
+      else if (evt.name === 'search_code') target = inp.pattern || '';
+      else if (evt.name === 'start_project') target = (inp.type || 'auto') + (inp.install_deps ? ' +装依赖' : '');
+      step.innerHTML = `<div class="step-head">
+        <span class="step-ico">${TOOL_ICONS[evt.name] || '🔧'}</span>
+        <span class="step-label">${TOOL_LABELS[evt.name] || evt.name}${target ? ' · ' + esc(target) : ''}</span>
+        <span class="step-dot"></span>
+      </div>
+      <div class="step-sum"></div>
+      <details class="step-details"><summary>详情</summary><pre class="step-out"></pre></details>`;
       b.appendChild(step);
       state.stepEl = step;
       scrollBottom(true);
@@ -273,7 +306,6 @@ function renderEvent(evt, replay) {
     case 'output': {
       if (!state.stepEl) break;
       const out = state.stepEl.querySelector('.step-out');
-      out.classList.remove('hidden');
       out.textContent = (out.textContent + evt.chunk).slice(-3000);
       out.scrollTop = out.scrollHeight;
       scrollBottom();
@@ -281,42 +313,38 @@ function renderEvent(evt, replay) {
     }
     case 'tool_result': {
       if (!state.stepEl) break;
-      const st = state.stepEl.querySelector('.step-status');
-      st.textContent = evt.ok ? '✓' : '✗';
-      st.className = 'step-status ' + (evt.ok ? 'ok' : 'err');
-      const out = state.stepEl.querySelector('.step-out');
-      if (evt.output) {
-        out.textContent = (out.textContent ? out.textContent + '\n' : '') + evt.output;
-        out.textContent = out.textContent.slice(-3000);
-        out.classList.remove('hidden');
-      }
+      const step = state.stepEl;
+      step.classList.remove('running');
+      step.classList.add(evt.ok ? 'ok' : 'err');
+      const sum = step.querySelector('.step-sum');
+      if (evt.summary) sum.textContent = evt.summary;
       if (evt.needsInstall) {
         const warn = document.createElement('div');
         warn.className = 'step-warn';
         warn.textContent = '⚠️ 需要安装依赖：AI 会发起确认，请点「允许」';
-        state.stepEl.appendChild(warn);
+        step.appendChild(warn);
       }
-      if (evt.summary) {
-        const sum = document.createElement('div');
-        sum.className = 'step-sum';
-        sum.textContent = evt.summary;
-        state.stepEl.appendChild(sum);
+      const out = step.querySelector('.step-out');
+      if (evt.output) {
+        out.textContent = (out.textContent ? out.textContent + '\n' : '') + evt.output;
+        out.textContent = out.textContent.slice(-3000);
       }
+      if (out.textContent.trim()) step.querySelector('.step-details').open = true;
       state.stepEl = null;
       scrollBottom(true);
       break;
     }
     case 'approval': {
-      if (replay) break; // 历史回放不显示审批卡
+      if (replay) break;
       state.textEl = null; state.textRaw = ''; state.stepEl = null;
-      const b = bubble('ai');
+      const b = aiBubble();
       const card = document.createElement('div');
       card.className = 'approval';
       card.innerHTML = `<div class="approval-title">⚠️ 需要你的确认</div>
         <pre class="approval-q">${esc(evt.question)}</pre>
         <div class="approval-btns">
-          <button data-v="1">✅ 允许</button>
-          <button data-v="0" class="danger">✋ 拒绝</button>
+          <button class="ok" data-v="1">✅ 允许</button>
+          <button class="no" data-v="0">✋ 拒绝</button>
         </div>
         <div class="approval-state"></div>`;
       card.addEventListener('click', async (e) => {
@@ -326,8 +354,7 @@ function renderEvent(evt, replay) {
         card.querySelector('.approval-btns').classList.add('hidden');
         try {
           await api('/api/approve', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ approvalId: evt.approvalId, allow: v === '1' }),
           });
         } catch {}
@@ -339,16 +366,16 @@ function renderEvent(evt, replay) {
     case 'done': {
       state.textEl = null; state.textRaw = ''; state.stepEl = null;
       if (evt.text && evt.text.trim()) {
-        const b = bubble('ai');
+        const b = aiBubble();
         const d = document.createElement('div');
         d.className = 'bubble md';
         d.innerHTML = md(evt.text);
         b.appendChild(d);
       }
-      const hint = bubble('ai');
+      const hint = aiBubble();
       hint.innerHTML = '<div class="hint">💡 想继续完善？直接说，比如：加个筛选、改配色、支持导出</div>';
       if (evt.usage && evt.usage.input > 0) {
-        const b = bubble('ai');
+        const b = aiBubble();
         b.innerHTML = '<div class="usage">本次消耗 ' + evt.usage.input + ' 输入 / ' + evt.usage.output + ' 输出 token</div>';
       }
       scrollBottom(true);
@@ -356,15 +383,21 @@ function renderEvent(evt, replay) {
     }
     case 'error': {
       state.textEl = null; state.textRaw = ''; state.stepEl = null;
-      const b = bubble('ai');
-      b.innerHTML = '<div class="bubble error-bubble">❌ ' + esc(evt.message) + '</div>';
+      const b = aiBubble();
+      const d = document.createElement('div');
+      d.className = 'bubble error-bubble';
+      d.textContent = '❌ ' + evt.message;
+      b.appendChild(d);
       scrollBottom(true);
       break;
     }
     case 'cancelled': {
       state.textEl = null; state.textRaw = ''; state.stepEl = null;
-      const b = bubble('ai');
-      b.innerHTML = '<div class="bubble">⏹ 已停止</div>';
+      const b = aiBubble();
+      const d = document.createElement('div');
+      d.className = 'bubble';
+      d.textContent = '⏹ 已停止';
+      b.appendChild(d);
       scrollBottom(true);
       break;
     }
@@ -374,17 +407,19 @@ function renderEvent(evt, replay) {
 }
 
 // ---------- 聊天 ----------
-async function send() {
-  const text = $('#input').value.trim();
+async function send(text) {
+  text = (text || $('#input').value).trim();
   if (!text || state.running) return;
   $('#input').value = '';
   autoGrow();
   if (!state.current) state.current = '新项目';
-  $('#projectName').textContent = state.current;
+  updatePill();
   state.running = true;
   $('#send').classList.add('hidden');
   $('#cancel').classList.remove('hidden');
   state.textEl = null; state.textRaw = ''; state.stepEl = null;
+  updateLanding();
+  showTyping();
 
   const decoder = new TextDecoder();
   try {
@@ -423,12 +458,12 @@ async function send() {
   } catch (e) {
     renderEvent({ type: 'error', message: '连接中断：' + e.message }, false);
   }
+  hideTyping();
   state.running = false;
   $('#send').classList.remove('hidden');
   $('#cancel').classList.add('hidden');
   $('#input').focus();
   await loadProjects();
-  renderProjects();
 }
 
 function autoGrow() {
@@ -436,7 +471,7 @@ function autoGrow() {
   el.style.height = 'auto';
   el.style.height = Math.min(el.scrollHeight, 130) + 'px';
 }
-$('#send').addEventListener('click', send);
+$('#send').addEventListener('click', () => send());
 $('#input').addEventListener('input', autoGrow);
 $('#input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
@@ -445,19 +480,23 @@ $('#cancel').addEventListener('click', async () => {
   if (!state.session) return;
   try {
     await api('/api/cancel', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId: state.session.id }),
     });
   } catch {}
 });
+
+// 欢迎页快捷指令
+for (const chip of document.querySelectorAll('.chip')) {
+  chip.addEventListener('click', () => send(chip.textContent.trim()));
+}
 
 // ---------- 项目选择 ----------
 async function selectProject(name) {
   state.current = name;
   state.session = null;
   clearLog();
-  $('#projectName').textContent = name;
+  updatePill();
   localStorage.setItem('pv:project', name);
   const lastId = localStorage.getItem('pv:session:' + name);
   if (lastId) {
@@ -465,6 +504,7 @@ async function selectProject(name) {
       const s = await api('/api/history/' + lastId);
       state.session = s;
       for (const evt of s.events || []) renderEvent(evt, true);
+      updateLanding();
       scrollBottom(true);
     } catch { state.session = null; }
   }
@@ -476,22 +516,22 @@ async function initKey() {
 }
 $('#keySave').addEventListener('click', async () => {
   const k = $('#keyInput').value.trim();
-  if (!k) return alert('请粘贴 API Key');
+  if (!k) return toast('请粘贴 API Key');
   try {
     await api('/api/key', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ apiKey: k }),
     });
     state.configured = true;
     $('#keyBanner').classList.add('hidden');
     $('#keyInput').value = '';
-    alert('已保存到本机 .env ✅\n现在可以对 AI 说需求了');
-  } catch (e) { alert('保存失败：' + e.message); }
+    toast('Key 已保存 ✅ 现在可以对 AI 说需求了');
+  } catch (e) { toast('保存失败：' + e.message); }
 });
 
 // ---------- 启动 ----------
 async function init() {
+  $('#ver').textContent = VERSION + ' · DeepSeek · 手机版 Agent';
   try {
     const st = await api('/api/state');
     state.configured = st.configured;
@@ -499,19 +539,22 @@ async function init() {
     state.port = st.port;
     await initKey();
     await loadProjects();
-    renderProjects();
     const saved = localStorage.getItem('pv:project');
     if (saved && state.projects.some((p) => p.name === saved)) await selectProject(saved);
     else if (state.projects.length) await selectProject(state.projects[0].name);
-    else $('#projectName').textContent = '（说个需求，会自动建项目）';
-    show(state.projects.length ? 'chat' : 'projects');
-    // Service Worker 只在安全上下文（localhost / https）注册
+    updatePill();
+    updateLanding();
     if ('serviceWorker' in navigator &&
       (location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'https:')) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
   } catch (e) {
-    $('#log').innerHTML = '<div class="empty">连接服务器失败：' + esc(e.message) + '</div>';
+    const b = aiBubble();
+    const d = document.createElement('div');
+    d.className = 'bubble error-bubble';
+    d.textContent = '连接服务器失败：' + e.message;
+    b.appendChild(d);
+    updateLanding();
   }
 }
 init();

@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0b0e14">
-<title>手机版 Agent · 手机本机编程</title>
+<meta name="theme-color" content="#090a10">
+<title>手机版 Agent · Lewis</title>
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/icons/icon-192.png">
 <link rel="apple-touch-icon" href="/icons/icon-192.png">
@@ -15,35 +15,43 @@
 <body>
 <div id="keyBanner" class="hidden">
   <div class="keybanner-inner">
-    <span>🔑 还没有 DeepSeek API Key（演示模式也可先玩）</span>
+    <span>🔑 还没有 DeepSeek API Key</span>
     <input id="keyInput" type="password" placeholder="粘贴 sk-... 只保存在本机">
     <button id="keySave">保存</button>
   </div>
 </div>
 <header>
-  <button class="iconbtn" id="btnProjects" title="项目列表">🗂</button>
-  <div class="title"><h1>手机版 Agent</h1><div id="projectName" class="project-name">—</div></div>
+  <div class="logo">&gt;_</div>
+  <button id="projectPill" class="project-pill">
+    <span class="pname" id="pname">选择项目</span><span class="car">▾</span>
+  </button>
   <button class="iconbtn" id="btnHistory" title="会话历史">🕘</button>
 </header>
 <main>
   <section id="viewChat">
-    <div id="log"></div>
+    <div id="log">
+      <div id="landing" class="landing">
+        <div class="lewis-avatar">L</div>
+        <h2>你好，我是 Lewis</h2>
+        <p>用中文说个需求，我就在你手机上把软件做出来</p>
+        <div class="chips">
+          <button class="chip">💰 做一个记账小工具</button>
+          <button class="chip">✅ 做一个待办清单</button>
+          <button class="chip">🎲 做一个抽签转盘</button>
+          <button class="chip">📝 做一个备忘录</button>
+        </div>
+        <div class="ver" id="ver"></div>
+      </div>
+    </div>
     <div id="composer">
-      <textarea id="input" rows="1" placeholder="说一个需求，例如：做一个记账小工具"></textarea>
-      <button id="send">发送</button>
-      <button id="cancel" class="hidden">停止</button>
+      <textarea id="input" rows="1" placeholder="说一个需求…"></textarea>
+      <button id="send" class="send-btn" title="发送">➤</button>
+      <button id="cancel" class="hidden" title="停止">⏹</button>
     </div>
   </section>
-  <section id="viewProjects" class="hidden">
-    <form id="newProjectForm">
-      <input id="newProjectName" placeholder="新项目名，如：记账本" required>
-      <button type="submit">＋ 新建</button>
-    </form>
-    <div id="projectList"></div>
-    <div id="lanInfo" class="lan-info"></div>
-  </section>
 </main>
-<div id="modal" class="hidden"><div id="modalCard"></div></div>
+<div id="sheet" class="sheet hidden"><div id="sheetCard" class="sheet-card"></div></div>
+<div id="toast" class="toast hidden"></div>
 <script src="/app.js"></script>
 </body>
 </html>
