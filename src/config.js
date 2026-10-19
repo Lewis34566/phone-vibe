@@ -52,7 +52,7 @@ module.exports = {
   // Key 兼容三种写法：DEEPSEEK_API_KEY / API_KEY / 旧版 ANTHROPIC_API_KEY
   get apiKey() { return (env.DEEPSEEK_API_KEY || env.API_KEY || env.ANTHROPIC_API_KEY || '').trim(); },
   get configured() { return this.apiKey.length > 10; },
-  get model() { return env.MODEL || 'deepseek-chat'; },
+  get model() { return env.MODEL || 'deepseek-v4-pro'; },
   get port() { const p = parseInt(env.PORT || '8787', 10); return Number.isFinite(p) ? p : 8787; },
   get autoOpen() { return env.AUTO_OPEN !== '0' && env.NO_AUTO_OPEN !== '1'; },
   get projectsDir() { return projectsDir(); },

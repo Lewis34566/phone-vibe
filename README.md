@@ -164,4 +164,4 @@ phone-vibe/
 └─ test/smoke.js        自测脚本
 ```
 
-技术说明：零 npm 依赖（只有 Node 内置模块），Agent 直接调 DeepSeek 的 chat/completions 流式接口（OpenAI 兼容格式），模型可在 `.env` 里换（默认 `deepseek-chat`）。
+技术说明：零 npm 依赖（只有 Node 内置模块），Agent 直接调 DeepSeek 的 chat/completions 流式接口（OpenAI 兼容格式），模型可在 `.env` 里换（默认 `deepseek-v4-pro`）。
