@@ -12,8 +12,8 @@ echo "== 1/5 更新软件源 =="
 pkg update -y
 
 echo ""
-echo "== 2/5 安装 Node.js / Git / Termux-API =="
-pkg install -y nodejs git termux-api
+echo "== 2/5 安装 Node.js / Git / curl / Termux-API =="
+pkg install -y nodejs git curl termux-api
 
 echo ""
 echo "== 3/5 授权访问手机存储 =="

@@ -120,12 +120,16 @@ async function projectAction(p, act) {
       if (r.ok === false) throw new Error(r.error || '启动失败');
       await loadProjects();
       if (r.error) alert('进程已启动，但：' + r.error);
-      else window.open('/p/' + encodeURIComponent(p.name) + '/', '_blank');
+      else {
+        const w = window.open('/p/' + encodeURIComponent(p.name) + '/', '_blank');
+        if (!w) location.href = '/p/' + encodeURIComponent(p.name) + '/'; // PWA 全屏模式下打开失败则直接跳转
+      }
     } else if (act === 'stop') {
       await api(`/api/project/${encodeURIComponent(p.name)}/stop`, { method: 'POST' });
       await loadProjects();
     } else if (act === 'open') {
-      window.open('/p/' + encodeURIComponent(p.name) + '/', '_blank');
+      const w = window.open('/p/' + encodeURIComponent(p.name) + '/', '_blank');
+      if (!w) location.href = '/p/' + encodeURIComponent(p.name) + '/';
     } else if (act === 'export') {
       window.location.href = `/api/project/${encodeURIComponent(p.name)}/export`;
     } else if (act === 'chat') {

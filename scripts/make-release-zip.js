@@ -1,0 +1,36 @@
+'use strict';
+// 打包整个项目（不含 .git / node_modules / 临时数据），生成可直接发到手机的安装包
+// 用法（在项目目录里执行）：
+//   node scripts/make-release-zip.js            → 生成到上级目录 手机版Agent-安装包.zip
+//   node scripts/make-release-zip.js 输出路径   → 生成到指定路径
+const fs = require('fs');
+const path = require('path');
+const { buildZip } = require('../src/zipstore');
+
+const ROOT = path.join(__dirname, '..');
+const out = process.argv[2]
+  ? path.resolve(process.argv[2])
+  : path.join(path.dirname(ROOT), '手机版Agent-安装包.zip');
+
+const SKIP = new Set(['.git', 'node_modules', 'data']);
+
+function collect(dir, base) {
+  const files = [];
+  for (const name of fs.readdirSync(dir)) {
+    if (SKIP.has(name)) continue;
+    if (/^(dev|test)-projects/.test(name)) continue;
+    const full = path.join(dir, name);
+    const rel = base ? base + '/' + name : name;
+    const st = fs.statSync(full);
+    if (st.isDirectory()) files.push(...collect(full, rel));
+    else files.push({ name: rel, data: fs.readFileSync(full), mtime: st.mtimeMs });
+  }
+  return files;
+}
+
+const files = collect(ROOT, '');
+const zip = buildZip(files);
+fs.mkdirSync(path.dirname(out), { recursive: true });
+fs.writeFileSync(out, zip);
+console.log(`已生成: ${out}`);
+console.log(`文件数: ${files.length}，大小: ${(zip.length / 1024).toFixed(0)} KB`);
