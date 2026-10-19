@@ -1,16 +1,52 @@
 'use strict';
-// 直接调 Anthropic Messages API（流式），不依赖任何 SDK —— Termux 上最稳
-const API_URL = 'https://api.anthropic.com/v1/messages';
+// DeepSeek API 流式调用（OpenAI 兼容格式），零依赖
+// 把 DeepSeek 的 chunk 翻译成本系统内部的事件格式（与 Agent 循环解耦）
+const API_URL = 'https://api.deepseek.com/chat/completions';
 
-async function* streamClaude({ apiKey, model, system, messages, tools, maxTokens, signal }) {
+// ---------- 消息格式转换：内部格式 -> DeepSeek(OpenAI) 格式 ----------
+function convertMessages(system, messages) {
+  const msgs = [{ role: 'system', content: system }];
+  for (const m of messages) {
+    if (m.role === 'user') {
+      if (typeof m.content === 'string') {
+        msgs.push({ role: 'user', content: m.content });
+      } else {
+        // tool_result 块：每个结果单独一条 tool 消息
+        for (const b of m.content || []) {
+          if (b.type === 'tool_result') {
+            msgs.push({ role: 'tool', tool_call_id: b.tool_use_id, content: b.content });
+          }
+        }
+      }
+    } else if (m.role === 'assistant') {
+      const blocks = m.content || [];
+      const text = blocks.filter((b) => b.type === 'text').map((b) => b.text).join('\n') || null;
+      const toolCalls = blocks
+        .filter((b) => b.type === 'tool_use')
+        .map((b) => ({
+          id: b.id,
+          type: 'function',
+          function: { name: b.name, arguments: JSON.stringify(b.input || {}) },
+        }));
+      msgs.push({ role: 'assistant', content: text, tool_calls: toolCalls.length ? toolCalls : undefined });
+    }
+  }
+  return msgs;
+}
+
+async function* streamDeepSeek({ apiKey, model, system, messages, tools, maxTokens, signal }) {
   const body = {
     model,
-    system,
-    messages,
-    tools,
+    messages: convertMessages(system, messages),
+    tools: tools.map((t) => ({
+      type: 'function',
+      function: { name: t.name, description: t.description, parameters: t.input_schema },
+    })),
     max_tokens: maxTokens || 8192,
     stream: true,
+    stream_options: { include_usage: true },
   };
+
   let lastErr;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -18,8 +54,7 @@ async function* streamClaude({ apiKey, model, system, messages, tools, maxTokens
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
+          authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify(body),
         signal,
@@ -30,12 +65,14 @@ async function* streamClaude({ apiKey, model, system, messages, tools, maxTokens
           const j = await resp.json();
           if (j.error && j.error.message) msg = j.error.message;
         } catch {}
-        throw new Error(`Claude API 错误：${msg}`);
+        throw new Error(`DeepSeek API 错误：${msg}`);
       }
-      // 逐行解析 SSE
       const reader = resp.body.getReader();
       const dec = new TextDecoder();
       let buf = '';
+      let textStarted = false;
+      let nextIdx = 1; // 文本块固定 index 0，工具块从 1 开始
+      const toolIdx = new Map(); // DeepSeek 工具 index -> 内部块 index
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -44,24 +81,79 @@ async function* streamClaude({ apiKey, model, system, messages, tools, maxTokens
         while ((nl = buf.indexOf('\n')) >= 0) {
           const line = buf.slice(0, nl).trim();
           buf = buf.slice(nl + 1);
-          if (line.startsWith('data:')) {
-            const data = line.slice(5).trim();
-            if (data) yield JSON.parse(data);
+          if (!line.startsWith('data:')) continue;
+          const data = line.slice(5).trim();
+          if (!data || data === '[DONE]') continue;
+          let chunk;
+          try { chunk = JSON.parse(data); } catch { continue; }
+
+          // 最后一个 chunk 带 usage（需要 stream_options.include_usage）
+          if (chunk.usage) {
+            if (chunk.usage.prompt_tokens) {
+              yield { type: 'message_start', message: { usage: { input_tokens: chunk.usage.prompt_tokens } } };
+            }
+            yield {
+              type: 'message_delta',
+              delta: {},
+              usage: { output_tokens: chunk.usage.completion_tokens || 0 },
+            };
+          }
+
+          const c = chunk.choices && chunk.choices[0];
+          if (!c) continue;
+          const d = c.delta || {};
+          if (typeof d.content === 'string' && d.content.length > 0) {
+            if (!textStarted) {
+              textStarted = true;
+              yield { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } };
+            }
+            yield { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: d.content } };
+          }
+          if (Array.isArray(d.tool_calls)) {
+            for (const tc of d.tool_calls) {
+              if (!toolIdx.has(tc.index)) {
+                const myIdx = nextIdx++;
+                toolIdx.set(tc.index, myIdx);
+                const fn = tc.function || {};
+                yield {
+                  type: 'content_block_start',
+                  index: myIdx,
+                  content_block: { type: 'tool_use', id: tc.id || `call_${tc.index}`, name: fn.name || '', input: {} },
+                };
+              }
+              const myIdx = toolIdx.get(tc.index);
+              const args = tc.function && tc.function.arguments;
+              if (args) {
+                yield { type: 'content_block_delta', index: myIdx, delta: { type: 'input_json_delta', partial_json: args } };
+              }
+            }
+          }
+          if (c.finish_reason) {
+            const stop = c.finish_reason === 'tool_calls' ? 'tool_use'
+              : c.finish_reason === 'length' ? 'max_tokens'
+              : 'end_turn';
+            yield { type: 'message_delta', delta: { stop_reason: stop } };
+            yield { type: 'message_stop' };
           }
         }
       }
       return;
     } catch (e) {
       if (signal && signal.aborted) throw e;
-      lastErr = e;
-      if (attempt === 0) await new Promise((r) => setTimeout(r, 900)); // 网络抖动重试一次
+      // 网络类错误重试一次；API 业务错误（4xx 等）不重试
+      if (!(e instanceof Error && e.message.startsWith('DeepSeek API 错误'))) {
+        lastErr = e;
+        if (attempt === 0) await new Promise((r) => setTimeout(r, 900));
+      } else {
+        throw e;
+      }
     }
   }
-  throw lastErr || new Error('Claude API 请求失败');
+  throw lastErr || new Error('DeepSeek API 请求失败');
 }
 
-// ================= 演示模式（ANTHROPIC_API_KEY=mock）=================
-// 没有 Key 也能体验完整流程：模拟 Agent 写一个记账小工具
+// ================= 演示模式（API Key=mock）=================
+// 没有 Key 也能体验完整流程：模拟 Lewis 写一个记账小工具
 const DEMO_HTML = `<!doctype html>
 <html lang="zh">
 <head>
@@ -198,4 +290,4 @@ async function* mockStream(messages) {
   yield { type: 'message_stop' };
 }
 
-module.exports = { streamClaude, mockStream };
+module.exports = { streamDeepSeek, mockStream };

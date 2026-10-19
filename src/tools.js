@@ -4,7 +4,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const projects = require('./projects');
 
-// ---------------- 工具定义（给 Claude 的 schema）----------------
+// ---------------- 工具定义（给大模型的 schema）----------------
 const TOOL_DEFS = [
   {
     name: 'list_dir',

@@ -78,7 +78,7 @@ async function main() {
 
   const server = spawn(process.execPath, ['server.js'], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(PORT), PHONE_PROJECTS_DIR: TEST_DIR, ANTHROPIC_API_KEY: 'mock', AUTO_OPEN: '0' },
+    env: { ...process.env, PORT: String(PORT), PHONE_PROJECTS_DIR: TEST_DIR, DEEPSEEK_API_KEY: 'mock', AUTO_OPEN: '0' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let serverLog = '';

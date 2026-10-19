@@ -1,7 +1,7 @@
 'use strict';
 const config = require('./config');
 const projects = require('./projects');
-const { streamClaude, mockStream } = require('./anthropic');
+const { streamDeepSeek, mockStream } = require('./llm');
 const { TOOL_DEFS, executeTool } = require('./tools');
 const { spawn } = require('child_process');
 
@@ -74,7 +74,7 @@ async function runAgent({ session, project, message, apiKey, model, controller, 
 
       const gen = config.isMock
         ? mockStream(messages)
-        : streamClaude({ apiKey, model, system: SYSTEM_PROMPT(project), messages, tools: TOOL_DEFS, signal });
+        : streamDeepSeek({ apiKey, model, system: SYSTEM_PROMPT(project), messages, tools: TOOL_DEFS, signal });
 
       for await (const evt of gen) {
         resetTimer();

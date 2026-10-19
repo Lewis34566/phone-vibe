@@ -64,12 +64,12 @@ bash install.sh
 
 ## 第四步：填入 API Key（1 分钟）
 
-1. 电脑/手机浏览器打开 `https://console.anthropic.com`，注册登录
-2. 左侧 **API Keys** → **Create Key** → 复制 `sk-ant-...` 开头的一串
+1. 电脑/手机浏览器打开 `https://platform.deepseek.com/api_keys`，注册登录
+2. 点 **创建 API Key** → 复制 `sk-...` 开头的一串
 3. 先不用改文件 —— 下一步启动后在网页里粘贴即可（只保存在你手机里）
 
 > 没有 Key 想先体验？在 Termux 里执行 `nano .env`，把
-> `ANTHROPIC_API_KEY=mock` 填上（演示模式，模拟 AI 写一个记账工具，不花钱）
+> `DEEPSEEK_API_KEY=mock` 填上（演示模式，模拟 AI 写一个记账工具，不花钱）
 
 ---
 
@@ -138,7 +138,7 @@ chmod +x ~/.termux/boot/termux-boot.sh
 已经有实例在跑。`pkill -f server.js` 后再启动，或者直接打开浏览器继续用。
 
 **Q：AI 回复很慢或报网络错误？**
-API Key 的请求需要能访问 `api.anthropic.com`。国内网络环境需要手机开启代理/科学上网。
+API Key 的请求走 DeepSeek 官方接口 `api.deepseek.com`，**国内网络直连可用，不需要代理**。如果报错，先确认 Key 有没有余额。
 
 **Q：项目里 Node 代码报错？**
 把项目卡片里的运行日志（启动失败时会提示）发到聊天里问 AI，让它自己修。
@@ -155,7 +155,7 @@ API Key 的请求需要能访问 `api.anthropic.com`。国内网络环境需要�
 ```
 phone-vibe/
 ├─ server.js            主服务（网页 + API + 项目预览反向代理）
-├─ src/                 Agent 循环、工具、Claude API 调用、项目管理
+├─ src/                 Agent 循环、工具、DeepSeek API 调用、项目管理
 ├─ public/              聊天界面（PWA，可添加主屏幕）
 ├─ install.sh           一键安装
 ├─ start.sh             一键启动 + 自动开浏览器
@@ -163,4 +163,4 @@ phone-vibe/
 └─ test/smoke.js        自测脚本
 ```
 
-技术说明：零 npm 依赖（只有 Node 内置模块），Agent 直接调 Anthropic Messages API 的 tool-use 流式接口，模型可在 `.env` 里换（默认 `claude-sonnet-5-5`）。
+技术说明：零 npm 依赖（只有 Node 内置模块），Agent 直接调 DeepSeek 的 chat/completions 流式接口（OpenAI 兼容格式），模型可在 `.env` 里换（默认 `deepseek-chat`）。

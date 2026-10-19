@@ -212,6 +212,7 @@ async function handleApi(req, res, pathname, method) {
     return sendJSON(res, 200, {
       configured: config.configured,
       keyMasked: config.apiKey ? config.apiKey.slice(0, 7) + '…' + config.apiKey.slice(-4) : '',
+      provider: 'deepseek',
       model: config.model,
       port: config.port,
       lanIps: config.lanIPs(),

@@ -49,9 +49,10 @@ function lanIPs() {
 module.exports = {
   APP_DIR,
   IS_ANDROID,
-  get apiKey() { return (env.ANTHROPIC_API_KEY || '').trim(); },
+  // Key 兼容三种写法：DEEPSEEK_API_KEY / API_KEY / 旧版 ANTHROPIC_API_KEY
+  get apiKey() { return (env.DEEPSEEK_API_KEY || env.API_KEY || env.ANTHROPIC_API_KEY || '').trim(); },
   get configured() { return this.apiKey.length > 10; },
-  get model() { return env.MODEL || 'claude-sonnet-5-5'; },
+  get model() { return env.MODEL || 'deepseek-chat'; },
   get port() { const p = parseInt(env.PORT || '8787', 10); return Number.isFinite(p) ? p : 8787; },
   get autoOpen() { return env.AUTO_OPEN !== '0' && env.NO_AUTO_OPEN !== '1'; },
   get projectsDir() { return projectsDir(); },
@@ -59,21 +60,21 @@ module.exports = {
   get isMock() { return this.apiKey === 'mock'; },
   lanIPs,
   reload,
-  // 把 API Key 写入 .env（保留其他行，原子写）
+  // 把 API Key 写入 .env（统一写成 DEEPSEEK_API_KEY，兼容替换旧字段名，原子写）
   saveApiKey(key) {
     const p = path.join(APP_DIR, '.env');
     const lines = fs.existsSync(p) ? fs.readFileSync(p, 'utf8').split(/\r?\n/) : [];
     let done = false;
     for (let i = 0; i < lines.length; i++) {
-      if (/^\s*ANTHROPIC_API_KEY\s*=/.test(lines[i])) {
-        lines[i] = `ANTHROPIC_API_KEY=${key.trim()}`;
+      if (/^\s*(DEEPSEEK_API_KEY|API_KEY|ANTHROPIC_API_KEY)\s*=/.test(lines[i])) {
+        lines[i] = `DEEPSEEK_API_KEY=${key.trim()}`;
         done = true;
         break;
       }
     }
     if (!done) {
       if (lines.length && lines[lines.length - 1].trim() !== '') lines.push('');
-      lines.push(`ANTHROPIC_API_KEY=${key.trim()}`);
+      lines.push(`DEEPSEEK_API_KEY=${key.trim()}`);
     }
     const tmp = p + '.tmp';
     fs.writeFileSync(tmp, lines.join('\n') + '\n');
