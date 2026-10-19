@@ -30,7 +30,8 @@ function collect(dir, base) {
 
 const files = collect(ROOT, '');
 const zip = buildZip(files);
-fs.mkdirSync(path.dirname(out), { recursive: true });
+const parent = path.dirname(out);
+if (!fs.existsSync(parent)) fs.mkdirSync(parent, { recursive: true }); // 盘符根目录已存在时 mkdir 会 EPERM
 fs.writeFileSync(out, zip);
 console.log(`已生成: ${out}`);
 console.log(`文件数: ${files.length}，大小: ${(zip.length / 1024).toFixed(0)} KB`);
