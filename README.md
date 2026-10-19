@@ -37,13 +37,13 @@ mv phone-vibe 手机版Agent && cd 手机版Agent
 > 想用英文目录名也可以：不执行上面 mv 那行，直接 `cd phone-vibe`。
 > ⚠️ 如果改了目录名，第七步开机自启脚本里的 `cd "$HOME/phone-vibe"` 也要同步改成新名字。
 
-> 如果 git clone 卡住/失败（GitHub 网络问题），用【方案 B】：
-> 在能访问 GitHub 的设备上下载本仓库 zip，用微信/数据线传到手机，
-> 在 Termux 里执行（zip 放在下载目录时）：
+> 如果 git clone 卡住/失败（GitHub 网络问题），用【方案 B：安装包 zip】：
+> 把电脑上打好的 `手机版Agent-安装包.zip` 用微信/数据线传到手机（放到"下载"目录），
+> 在 Termux 里执行：
 >
 > ```bash
 > pkg install -y unzip
-> cd ~ && unzip ~/storage/downloads/phone-vibe-main.zip && mv phone-vibe-main 手机版Agent
+> cd ~ && unzip ~/storage/downloads/手机版Agent-安装包.zip -d 手机版Agent && cd 手机版Agent
 > ```
 
 ---
