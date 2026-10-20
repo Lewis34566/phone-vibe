@@ -10,12 +10,14 @@
 <link rel="apple-touch-icon" href="/icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<link rel="stylesheet" href="/style.css">
+<meta name="application-name" content="手机版 Agent">
+<meta name="apple-mobile-web-app-title" content="手机版 Agent">
+<link rel="stylesheet" href="/style.css?v=1.9">
 </head>
 <body>
 <div id="keyBanner" class="hidden">
   <div class="keybanner-inner">
-    <span>🔑 还没有 DeepSeek API Key</span>
+    <span>🔑 还没有配置 API Key</span>
     <input id="keyInput" type="password" placeholder="粘贴 sk-... 只保存在本机">
     <button id="keySave">保存</button>
   </div>
@@ -25,7 +27,10 @@
   <button id="projectPill" class="project-pill">
     <span class="pname" id="pname">选择项目</span><span class="car">▾</span>
   </button>
+  <button class="iconbtn" id="btnNewChat" title="新聊天">＋</button>
+  <button class="iconbtn hidden" id="btnInstall" title="安装到桌面">📲</button>
   <button class="iconbtn" id="btnHistory" title="会话历史">🕘</button>
+  <button class="iconbtn" id="btnSettings" title="设置">⚙️</button>
 </header>
 <main>
   <section id="viewChat">
@@ -45,6 +50,7 @@
     </div>
     <div id="composer">
       <textarea id="input" rows="1" placeholder="说一个需求…"></textarea>
+      <button id="mic" class="send-btn ghost" title="语音输入">🎤</button>
       <button id="send" class="send-btn" title="发送">➤</button>
       <button id="cancel" class="hidden" title="停止">⏹</button>
     </div>
@@ -52,6 +58,6 @@
 </main>
 <div id="sheet" class="sheet hidden"><div id="sheetCard" class="sheet-card"></div></div>
 <div id="toast" class="toast hidden"></div>
-<script src="/app.js"></script>
+<script src="/app.js?v=1.9"></script>
 </body>
 </html>

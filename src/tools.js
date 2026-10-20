@@ -1,26 +1,28 @@
 'use strict';
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const projects = require('./projects');
+const config = require('./config');
 
 // ---------------- 工具定义（给大模型的 schema）----------------
 const TOOL_DEFS = [
   {
     name: 'list_dir',
-    description: '列出项目目录下（或指定子目录）的文件和文件夹',
+    description: '列出目录内容（默认项目根目录，也可以传 ~/storage/shared 这类绝对路径）',
     input_schema: {
       type: 'object',
-      properties: { path: { type: 'string', description: '相对路径，默认项目根目录' } },
+      properties: { path: { type: 'string', description: '相对项目路径或手机存储的绝对路径，默认项目根目录' } },
     },
   },
   {
     name: 'read_file',
-    description: '读取项目内的文本文件内容',
+    description: '读取文本文件内容（项目内相对路径，或 ~/storage/shared/notes.txt 这类绝对路径）',
     input_schema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: '相对路径' },
+        path: { type: 'string', description: '相对路径或绝对路径' },
         offset: { type: 'number', description: '从第几个字符开始读（可选）' },
         limit: { type: 'number', description: '最多读多少个字符（可选）' },
       },
@@ -29,11 +31,11 @@ const TOOL_DEFS = [
   },
   {
     name: 'write_file',
-    description: '创建或覆盖项目内的文件（自动创建目录）',
+    description: '创建或覆盖文件（自动创建目录；支持项目内相对路径，也支持 ~/storage/shared/xxx 这类绝对路径）',
     input_schema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: '相对路径，如 index.html 或 src/app.js' },
+        path: { type: 'string', description: '相对路径（如 index.html），或绝对路径（如 ~/storage/shared/记账/data.json）' },
         content: { type: 'string', description: '文件完整内容' },
       },
       required: ['path', 'content'],
@@ -41,16 +43,16 @@ const TOOL_DEFS = [
   },
   {
     name: 'delete_file',
-    description: '删除项目内的文件或目录（会弹窗让用户确认）',
+    description: '删除文件或目录（会弹窗让用户确认）',
     input_schema: {
       type: 'object',
-      properties: { path: { type: 'string', description: '相对路径' } },
+      properties: { path: { type: 'string', description: '相对路径或绝对路径' } },
       required: ['path'],
     },
   },
   {
     name: 'run_command',
-    description: '在项目目录里执行一条命令（涉及删除/下载/安装时会要求用户确认）',
+    description: '执行一条 shell 命令（默认在项目目录里运行，也可以 cd 到手机存储；涉及删除/下载/安装时会要求用户确认）',
     input_schema: {
       type: 'object',
       properties: {
@@ -89,6 +91,81 @@ const TOOL_DEFS = [
       required: ['pattern'],
     },
   },
+  {
+    name: 'edit_file',
+    description: '精确替换文件里的一段文本（改已有文件的首选，比 write_file 整篇重写更稳）。old_string 必须与文件内容完全一致，含缩进和换行。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: '文件路径' },
+        old_string: { type: 'string', description: '要被替换的原文（要求唯一匹配）' },
+        new_string: { type: 'string', description: '替换成的新内容' },
+        replace_all: { type: 'boolean', description: '是否替换全部匹配（默认 false）' },
+      },
+      required: ['path', 'old_string', 'new_string'],
+    },
+  },
+  {
+    name: 'read_url',
+    description: '读取网页正文（查资料、看文档用）。自动去掉 HTML 标签，返回纯文本。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'http/https 网址' },
+        max_chars: { type: 'number', description: '最多返回多少字符，默认 6000' },
+      },
+      required: ['url'],
+    },
+  },
+  {
+    name: 'http_request',
+    description: '调用任意 HTTP 接口（GET/POST/PUT/DELETE），查天气、调 API、抓数据都行。返回状态码和正文。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'http/https 网址' },
+        method: { type: 'string', enum: ['GET', 'POST', 'PUT', 'DELETE'], description: '默认 GET' },
+        headers: { type: 'object', description: '请求头对象，如 {"Content-Type":"application/json"}' },
+        body: { type: 'string', description: '请求体（POST/PUT 时用）' },
+        max_chars: { type: 'number', description: '最多返回多少字符，默认 4000' },
+      },
+      required: ['url'],
+    },
+  },
+  {
+    name: 'apps',
+    description: '查看手机里装了哪些 App（列包名），或按包名启动某个 App。用于"帮我打开微信""手机上都有哪些应用"这类需求。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['list', 'open'], description: 'list=列出已安装的第三方 App；open=启动指定包名的 App' },
+        app: { type: 'string', description: 'open 时填包名，如 com.tencent.mm（微信）、com.xingin.xhs（小红书）' },
+        filter: { type: 'string', description: 'list 时按关键词过滤，例如 tencent、music' },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'phone',
+    description: '直接操作这台手机：打开链接/应用、读写剪贴板、发通知、读电量与 WiFi、发短信、拍照、语音朗读、震动、手电筒、分享文件。需要手机装 Termux:API 应用。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['open_url', 'open_app', 'clipboard_get', 'clipboard_set', 'notify', 'toast', 'vibrate', 'tts', 'battery', 'wifi', 'sms', 'photo', 'torch', 'share'],
+          description: '要执行的动作',
+        },
+        url: { type: 'string', description: 'open_url 用' },
+        app: { type: 'string', description: 'open_app 用，应用包名，如 com.tencent.mm（微信）、com.xingin.xhs（小红书）、com.eg.android.AlipayGphone（支付宝）' },
+        text: { type: 'string', description: 'clipboard_set / notify / tts / sms / toast 的内容' },
+        title: { type: 'string', description: 'notify 的标题' },
+        to: { type: 'string', description: 'sms 的收件号码' },
+        path: { type: 'string', description: 'photo 保存路径或 share 的文件路径' },
+      },
+      required: ['action'],
+    },
+  },
 ];
 
 // ---------------- 危险命令判定 ----------------
@@ -108,11 +185,39 @@ function dangerOf(cmd) {
 }
 
 // ---------------- 路径安全 ----------------
+// v1.5：默认放开到"整个手机存储"，但系统目录仍然锁死；.env 里 ALLOW_ANY_PATH=0 可回到纯项目沙盒
+function isInside(p, root) {
+  return p === root || p.startsWith(root + path.sep);
+}
+
+function allowedRoots() {
+  return [
+    os.homedir(),                 // Termux 家目录 ~（含 ~/storage 软链）
+    '/sdcard',                    // 内部存储
+    '/storage/emulated/0',        // 同上（真实路径）
+    '/storage/self/primary',      // 同上（软链）
+    os.tmpdir(),                  // 临时目录
+    config.projectsDir,           // 项目根目录（可能被单独指到共享存储）
+  ].map((p) => path.resolve(p));
+}
+
+function expandHome(p) {
+  const s = String(p || '');
+  if (s === '~') return os.homedir();
+  if (s.startsWith('~/') || s.startsWith('~\\')) return path.join(os.homedir(), s.slice(2));
+  return s;
+}
+
 function resolveIn(projectDir, rel) {
   const base = path.resolve(projectDir);
-  const p = path.resolve(base, rel || '.');
-  if (p !== base && !p.startsWith(base + path.sep)) {
-    throw new Error(`路径越界，禁止访问项目目录之外：${rel}`);
+  const p = path.resolve(base, expandHome(rel || '.'));
+  if (isInside(p, base)) return p; // 项目内：永远允许
+  if (!config.allowAnyPath) {
+    throw new Error(`路径越界，禁止访问项目目录之外：${rel}（想放开整个手机，把 .env 里 ALLOW_ANY_PATH 设为 1）`);
+  }
+  const roots = allowedRoots();
+  if (!roots.some((r) => isInside(p, r))) {
+    throw new Error(`禁止访问系统目录：${rel}（只允许手机存储、Termux 家目录和项目目录）`);
   }
   return p;
 }
@@ -126,7 +231,7 @@ function shellCmd(cmd) {
   return { sh: 'bash', args: ['-c', cmd] };
 }
 
-function runProcess(sh, args, { cwd, timeoutMs, onChunk }) {
+function runProcess(sh, args, { cwd, timeoutMs, onChunk, signal }) {
   return new Promise((resolve) => {
     const child = spawn(sh, args, {
       cwd,
@@ -136,18 +241,34 @@ function runProcess(sh, args, { cwd, timeoutMs, onChunk }) {
     });
     let output = '';
     let timedOut = false;
+    let aborted = false;
     let settled = false;
     const started = Date.now();
+    const kill = () => {
+      try { projects.killTree(child.pid); } catch { try { child.kill('SIGKILL'); } catch {} }
+    };
     const timer = setTimeout(() => {
       timedOut = true;
-      projects.killTree(child.pid); // Windows 下杀整棵进程树
+      kill(); // Windows 下杀整棵进程树
     }, timeoutMs);
+    const onAbort = () => {
+      if (settled) return;
+      aborted = true;
+      kill();
+      output = capOutput(output + '\n[已被用户停止]');
+      finish({ exitCode: -2, output, durationMs: Date.now() - started, timedOut: false, aborted: true });
+    };
     const finish = (r) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (signal) { try { signal.removeEventListener('abort', onAbort); } catch {} }
       resolve(r);
     };
+    if (signal) {
+      if (signal.aborted) { onAbort(); return; }
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
     const onData = (buf) => {
       const s = buf.toString('utf8');
       output = capOutput(output + s);
@@ -160,7 +281,7 @@ function runProcess(sh, args, { cwd, timeoutMs, onChunk }) {
       finish({ exitCode: 127, output, durationMs: Date.now() - started, timedOut: false });
     });
     child.on('close', (code) => {
-      finish({ exitCode: code ?? -1, output, durationMs: Date.now() - started, timedOut });
+      finish({ exitCode: code ?? -1, output, durationMs: Date.now() - started, timedOut, aborted });
     });
   });
 }
@@ -174,6 +295,40 @@ function fmtSize(n) {
   if (n < 1024) return n + 'B';
   if (n < 1024 * 1024) return (n / 1024).toFixed(1) + 'KB';
   return (n / 1024 / 1024).toFixed(1) + 'MB';
+}
+
+// ---------------- 手机操作（Termux:API）----------------
+function shq(s) {
+  return "'" + String(s ?? '').replace(/'/g, "'\\''") + "'";
+}
+
+// 把 phone 的 action 翻译成一条 shell 命令（便于单测，不直接执行）
+function buildPhoneCommand(action, input) {
+  const i = input || {};
+  switch (action) {
+    case 'open_url':
+      if (!i.url) return { error: 'open_url 需要 url' };
+      return { cmd: `termux-open ${shq(i.url)} 2>/dev/null || am start -a android.intent.action.VIEW -d ${shq(i.url)}` };
+    case 'open_app':
+      if (!i.app) return { error: 'open_app 需要 app 包名' };
+      return { cmd: `monkey -p ${shq(i.app)} -c android.intent.category.LAUNCHER 1` };
+    case 'clipboard_get': return { cmd: 'termux-clipboard-get' };
+    case 'clipboard_set': return { cmd: `printf '%s' ${shq(i.text)} | termux-clipboard-set` };
+    case 'notify': return { cmd: `termux-notification --title ${shq(i.title || 'Lewis')} --content ${shq(i.text || '')}` };
+    case 'toast': return { cmd: `termux-toast ${shq(i.text || '')}` };
+    case 'vibrate': return { cmd: 'termux-vibrate -d 500 -f' };
+    case 'tts': return { cmd: `termux-tts-speak ${shq(i.text || '')}` };
+    case 'battery': return { cmd: 'termux-battery-status' };
+    case 'wifi': return { cmd: 'termux-wifi-connectioninfo' };
+    case 'sms':
+      if (!i.to) return { error: 'sms 需要 to 号码' };
+      return { cmd: `termux-sms-send -n ${shq(i.to)} ${shq(i.text || '')}` };
+    case 'photo':
+      return { cmd: i.path ? `termux-camera-photo ${shq(i.path)}` : 'termux-camera-photo "$HOME/storage/shared/DCIM/Lewis-$(date +%s).jpg"' };
+    case 'torch': return { cmd: `termux-torch ${i.text === 'off' ? 'off' : 'on'}` };
+    case 'share': return { cmd: `termux-share ${shq(i.path || '')}` };
+    default: return { error: `不支持的动作：${action}` };
+  }
 }
 
 // ---------------- 工具执行 ----------------
@@ -229,7 +384,7 @@ async function executeTool(name, input, ctx) {
     case 'delete_file': {
       const p = resolveIn(projectDir, input.path);
       if (!fs.existsSync(p)) return { ok: false, summary: `${input.path} 不存在`, error: '文件不存在', output: '' };
-      await state.approve(`删除文件/目录：${input.path}\n\n（项目目录内的操作，删除后不可恢复）`);
+      await state.approve(`删除文件/目录：${input.path}\n\n删除后不可恢复，确认要删吗？`);
       await fs.promises.rm(p, { recursive: true, force: true });
       return { ok: true, summary: `已删除 ${input.path}`, output: '', data: { path: input.path } };
     }
@@ -238,15 +393,17 @@ async function executeTool(name, input, ctx) {
       if (!cmd.trim()) return { ok: false, summary: '空命令', error: 'empty command', output: '' };
       const danger = dangerOf(cmd);
       if (danger) {
-        await state.approve(`需要确认才能执行（${danger}）：\n\n$ ${cmd}\n\n此命令只在项目目录内运行。`);
+        await state.approve(`需要确认才能执行（${danger}）：\n\n$ ${cmd}\n\n命令默认在项目目录里运行，但可以 cd 到手机存储。`);
       }
       const timeoutMs = Math.min(Math.max(parseInt(input.timeout_seconds, 10) || 120, 5), 600) * 1000;
       const { sh, args } = shellCmd(cmd);
       const r = await runProcess(sh, args, {
         cwd: projectDir,
         timeoutMs,
+        signal: state.signal,
         onChunk: (c) => state.send({ type: 'output', chunk: c, tool: 'run_command' }),
       });
+      if (r.aborted) return { ok: false, summary: '已按你的要求停止', error: 'aborted', output: r.output };
       return {
         ok: r.exitCode === 0,
         summary: `退出码 ${r.exitCode}（${(r.durationMs / 1000).toFixed(1)}s）${r.timedOut ? '，已超时终止' : ''}`,
@@ -313,9 +470,111 @@ async function executeTool(name, input, ctx) {
         : `（没有找到「${pattern}」）`;
       return { ok: true, summary: `找到 ${matches.length} 处`, output, data: { matches } };
     }
+    case 'edit_file': {
+      const p = resolveIn(projectDir, input.path);
+      const oldStr = String(input.old_string ?? '');
+      const newStr = String(input.new_string ?? '');
+      if (!oldStr) return { ok: false, summary: 'old_string 不能为空', error: 'empty old_string', output: '' };
+      let text;
+      try { text = await fs.promises.readFile(p, 'utf8'); }
+      catch (e) { return { ok: false, summary: `读不到 ${input.path}`, error: String(e.message || e), output: '' }; }
+      const count = text.split(oldStr).length - 1;
+      if (count === 0) return { ok: false, summary: '没找到要替换的内容', error: 'old_string 在文件里不存在，请先用 read_file 确认原文（缩进、换行都要一致）', output: '' };
+      if (count > 1 && !input.replace_all) return { ok: false, summary: `匹配到 ${count} 处，未替换`, error: `old_string 不唯一（${count} 处），请给更长的上下文，或设 replace_all: true`, output: '' };
+      const out = input.replace_all ? text.split(oldStr).join(newStr) : text.replace(oldStr, newStr);
+      await fs.promises.writeFile(p, out, 'utf8');
+      return { ok: true, summary: `已替换 ${input.replace_all ? count : 1} 处（${input.path}）`, output: '', data: { path: input.path, replaced: input.replace_all ? count : 1 } };
+    }
+    case 'read_url': {
+      const url = String(input.url || '');
+      if (!/^https?:\/\//i.test(url)) return { ok: false, summary: '只支持 http/https 网址', error: 'invalid url', output: '' };
+      const max = Math.min(Math.max(parseInt(input.max_chars, 10) || 6000, 500), 20000);
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 15000);
+      try {
+        const r = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14) LewisAgent/1.6' } });
+        const ct = r.headers.get('content-type') || '';
+        let body = await r.text();
+        clearTimeout(timer);
+        if (!r.ok) return { ok: false, summary: `HTTP ${r.status}`, error: `HTTP ${r.status}`, output: body.slice(0, 500) };
+        if (/html|xml/i.test(ct)) {
+          body = body
+            .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+            .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+            .replace(/<!--[\s\S]*?-->/g, ' ')
+            .replace(/<br\s*\/?>/gi, '\n')
+            .replace(/<\/(p|div|li|h[1-6])>/gi, '\n')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+            .replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
+        }
+        if (body.length > max) body = body.slice(0, max) + `\n\n[已截断：全文约 ${body.length} 字符]`;
+        return { ok: true, summary: `读取网页成功（HTTP ${r.status}）`, output: body, data: { url, status: r.status } };
+      } catch (e) {
+        clearTimeout(timer);
+        return { ok: false, summary: '抓取失败', error: String((e && e.message) || e), output: '' };
+      }
+    }
+    case 'http_request': {
+      const url = String(input.url || '');
+      if (!/^https?:\/\//i.test(url)) return { ok: false, summary: '只支持 http/https 网址', error: 'invalid url', output: '' };
+      const method = String(input.method || 'GET').toUpperCase();
+      const max = Math.min(Math.max(parseInt(input.max_chars, 10) || 4000, 300), 20000);
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 20000);
+      try {
+        const r = await fetch(url, {
+          method,
+          headers: Object.assign({ 'User-Agent': 'Mozilla/5.0 (Linux; Android 14) LewisAgent/1.9' }, input.headers || {}),
+          body: method === 'GET' || method === 'HEAD' ? undefined : (input.body || ''),
+          signal: ctrl.signal,
+        });
+        clearTimeout(timer);
+        let text = await r.text();
+        if (text.length > max) text = text.slice(0, max) + `\n\n[已截断：全文约 ${text.length} 字符]`;
+        return { ok: r.ok, summary: `${method} ${r.status}`, output: text, data: { status: r.status, url } };
+      } catch (e) {
+        clearTimeout(timer);
+        return { ok: false, summary: '请求失败', error: String((e && e.message) || e), output: '' };
+      }
+    }
+    case 'apps': {
+      const action = String(input.action || 'list');
+      if (action === 'open') {
+        if (!input.app) return { ok: false, summary: 'open 需要 app 包名', error: 'missing app', output: '' };
+        const r = await runProcess('bash', ['-c', `monkey -p ${shq(input.app)} -c android.intent.category.LAUNCHER 1`], { cwd: projectDir, timeoutMs: 15000, signal: state.signal });
+        const out = (r.output || '').trim();
+        return { ok: r.exitCode === 0, summary: r.exitCode === 0 ? `已启动 ${input.app}` : `启动失败（${out.slice(0, 80) || '包名可能不对'}）`, output: out.slice(0, 2000), data: { action, exitCode: r.exitCode } };
+      }
+      const r = await runProcess('bash', ['-c', 'pm list packages -3 2>/dev/null | sed "s/^package://" | sort'], { cwd: projectDir, timeoutMs: 15000, signal: state.signal });
+      let list = (r.output || '').split('\n').map((s) => s.trim()).filter(Boolean);
+      const filter = String(input.filter || '').trim();
+      if (filter) list = list.filter((p) => p.toLowerCase().includes(filter.toLowerCase()));
+      return {
+        ok: list.length > 0,
+        summary: list.length ? `找到 ${list.length} 个第三方 App` : '没读到应用列表（系统权限限制，安卓 11+ 可能需要额外授权）',
+        output: list.slice(0, 300).join('\n'),
+        data: { count: list.length },
+      };
+    }
+    case 'phone': {
+      const action = String(input.action || '');
+      if (action === 'sms') {
+        await state.approve(`要替你发短信给 ${input.to || '（没填号码）'}：\n\n${String(input.text || '').slice(0, 300)}`);
+      }
+      const built = buildPhoneCommand(action, input);
+      if (built.error) return { ok: false, summary: built.error, error: built.error, output: '' };
+      const r = await runProcess('bash', ['-c', built.cmd], { cwd: projectDir, timeoutMs: 25000, signal: state.signal });
+      const output = (r.output || '').trim();
+      if (r.exitCode !== 0 && !output) {
+        return { ok: false, summary: `${action} 失败`, error: `退出码 ${r.exitCode}（多半是没装 Termux:API 应用，F-Droid 可搜到）`, output: '' };
+      }
+      const brief = output.replace(/\s+/g, ' ').slice(0, 160);
+      return { ok: r.exitCode === 0, summary: `${action} 完成${brief ? '：' + brief : ''}`, output: output.slice(0, 4000), data: { action, exitCode: r.exitCode } };
+    }
     default:
       return { ok: false, summary: `未知工具 ${name}`, error: `unknown tool: ${name}`, output: '' };
   }
 }
 
-module.exports = { TOOL_DEFS, executeTool, dangerOf, resolveIn };
+module.exports = { TOOL_DEFS, executeTool, dangerOf, resolveIn, buildPhoneCommand };

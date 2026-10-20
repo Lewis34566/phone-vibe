@@ -29,7 +29,12 @@ const SYSTEM_PROMPT = (project) => `你是 Lewis，一位经验丰富的全栈�
 ## 技术约束
 - 优先纯静态单页（HTML/CSS/JS），只有需求确实需要后端（文件存储、定时任务、调用外部接口）才用 Node。
 - Node 项目尽量零依赖（用内置模块），必须装第三方包才 npm install（会弹窗让用户确认）。
-- 你只能读写当前项目目录及其子目录，绝对禁止访问项目目录以外的任何路径；删除文件、联网下载也会弹窗确认。
+- 项目文件默认写进当前项目目录；同时你也能读写整个手机存储：Termux 家目录 ~、共享存储 /sdcard（等于 ~/storage/shared）。需要放到手机存储时直接用绝对路径（如 ~/storage/shared/记账/data.json）。
+- 系统目录（/system、/proc、/sys、/data 根目录等）禁止访问，会被直接拒绝。
+- 删除文件、联网下载、安装依赖仍然会弹窗让用户点「允许」，不要绕过。
+- 你能直接操作手机（phone 工具）：打开链接/应用、读写剪贴板、发通知、读电量/WiFi、发短信（需确认）、拍照、语音朗读、震动、手电筒、分享文件。用户装好 Termux:API 后这些就能用；失败时如实告诉用户缺什么。
+- 查资料用 read_url 读网页正文；改已有文件优先 edit_file 局部替换，少整篇重写。
+- 安卓权限边界：别的 App 内部的点击、填表、读屏你做不到（除非用户装 Shizuku 或 root），别承诺做不到的事。
 - 中文界面、中文注释适量即可。
 
 ## 风格
@@ -45,6 +50,9 @@ function previewInput(name, input) {
       return { path: i.path, content: c.slice(0, 120) + (c.length > 120 ? '…' : '') };
     }
     case 'run_command': return { command: i.command };
+    case 'edit_file': return { path: i.path, old: String(i.old_string || '').slice(0, 80) };
+    case 'read_url': return { url: i.url };
+    case 'phone': return { action: i.action, app: i.app || '', text: String(i.text || '').slice(0, 60) };
     case 'start_project': return { type: i.type, install_deps: !!i.install_deps };
     case 'stop_project': return {};
     default: return i;
@@ -174,7 +182,7 @@ async function runAgent({ session, project, message, apiKey, model, controller, 
 
   // 完成后自动在手机浏览器打开预览（termux-open-url 拉起默认浏览器）
   if (startedUrl && config.autoOpen && config.IS_ANDROID) {
-    const url = `http://localhost:${config.port}${startedUrl}`;
+    const url = `http://127.0.0.1:${config.port}${startedUrl}`;
     try {
       spawn('termux-open-url', [url], { stdio: 'ignore', detached: true }).unref();
     } catch {}

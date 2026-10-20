@@ -320,7 +320,31 @@ async function exportZip(name) {
   return buildZip(files);
 }
 
+// 一键备份：把所有项目打成 zip（跳过 node_modules/.git，避免体积爆炸）
+async function backupAll() {
+  const root = config.projectsDir;
+  const files = [];
+  const walk = (dir, base) => {
+    let ents;
+    try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) {
+      if (files.length > 3000) return;
+      if (e.name === 'node_modules' || e.name === '.git') continue;
+      const full = path.join(dir, e.name);
+      const rel = base ? base + '/' + e.name : e.name;
+      if (e.isDirectory()) { walk(full, rel); continue; }
+      try {
+        const st = fs.statSync(full);
+        if (st.size > 20 * 1024 * 1024) continue;
+        files.push({ name: rel, data: fs.readFileSync(full), mtime: st.mtimeMs });
+      } catch {}
+    }
+  };
+  if (fs.existsSync(root)) walk(root, '');
+  return buildZip(files);
+}
+
 module.exports = {
   listProjects, createProject, ensureProject, startProject, stopProject, stopAll,
-  getProject, deleteProject, exportZip, projectPath, sanitizeName, killTree,
+  getProject, deleteProject, exportZip, projectPath, sanitizeName, killTree, backupAll,
 };

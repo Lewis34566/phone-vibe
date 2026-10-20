@@ -1,6 +1,6 @@
 {
   "name": "phone-vibe",
-  "version": "1.0.0",
+  "version": "1.9.0",
   "description": "手机本机 Vibe Coding 系统：在 Android 手机上用中文说需求，Agent 自动写代码并运行",
   "main": "server.js",
   "scripts": {

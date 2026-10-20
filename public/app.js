@@ -1,5 +1,5 @@
 'use strict';
-const VERSION = 'v1.4';
+const VERSION = 'v1.9';
 const $ = (s) => document.querySelector(s);
 const state = {
   projects: [], current: null, session: null,
@@ -8,14 +8,14 @@ const state = {
 };
 
 const TOOL_LABELS = {
-  list_dir: '查看目录', read_file: '读文件', write_file: '写文件',
+  list_dir: '查看目录', read_file: '读文件', write_file: '写文件', edit_file: '改代码',
   delete_file: '删除', run_command: '执行命令', start_project: '启动项目', stop_project: '停止项目',
-  search_code: '搜索代码',
+  search_code: '搜索代码', read_url: '读网页',
 };
 const TOOL_ICONS = {
-  list_dir: '📂', read_file: '📄', write_file: '✍️',
+  list_dir: '📂', read_file: '📄', write_file: '✍️', edit_file: '✏️',
   delete_file: '🗑️', run_command: '⚙️', start_project: '🚀', stop_project: '⏹️',
-  search_code: '🔍',
+  search_code: '🔍', read_url: '🌐',
 };
 
 async function api(path, opts) {
@@ -60,9 +60,34 @@ function md(s) {
   return t;
 }
 
+// 流式渲染节流：手机上每个 token 都把整段 markdown 重排一次会很卡，
+// 合并成 70ms 一次渲染，体感顺滑很多（v1.5）
+function scheduleMd(el) {
+  if (el._mdTimer) return;
+  el._mdTimer = setTimeout(() => {
+    el._mdTimer = 0;
+    el.innerHTML = md(el._raw || '');
+    scrollBottom();
+  }, 70);
+}
+
 function scrollBottom(force) {
   const log = $('#log');
-  if (force || log.scrollTop + log.clientHeight >= log.scrollHeight - 160) log.scrollTop = log.scrollHeight;
+  if (force) { log.scrollTop = log.scrollHeight; return; }
+  if (scrollQueued) return;
+  scrollQueued = true;
+  requestAnimationFrame(() => {
+    scrollQueued = false;
+    if (log.scrollTop + log.clientHeight >= log.scrollHeight - 220) log.scrollTop = log.scrollHeight;
+  });
+}
+let scrollQueued = false;
+
+// 长会话会堆出成百上千个节点，手机上会明显变卡——只保留最近的
+function trimLog() {
+  const log = $('#log');
+  const kids = [...log.children].filter((c) => c.id !== 'landing');
+  if (kids.length > 120) kids.slice(0, kids.length - 120).forEach((el) => el.remove());
 }
 
 function aiBubble() {
@@ -70,6 +95,7 @@ function aiBubble() {
   div.className = 'msg ai';
   div.innerHTML = '<div class="avatar">L</div>';
   $('#log').appendChild(div);
+  trimLog();
   return div;
 }
 function userBubble(text) {
@@ -77,6 +103,7 @@ function userBubble(text) {
   div.className = 'msg user';
   div.innerHTML = '<div class="bubble">' + esc(text) + '</div>';
   $('#log').appendChild(div);
+  trimLog();
   return div;
 }
 
@@ -250,7 +277,9 @@ async function loadSession(id) {
   const s = await api('/api/history/' + id);
   state.session = s;
   clearLog();
-  for (const evt of s.events || []) renderEvent(evt, true);
+  // 只回放最近 120 个事件：老会话动辄上千事件，全渲染会卡好几秒
+  const evts = (s.events || []).slice(-120);
+  for (const evt of evts) renderEvent(evt, true);
   updateLanding();
   scrollBottom(true);
 }
@@ -274,10 +303,10 @@ function renderEvent(evt, replay) {
         b.appendChild(state.textEl);
       }
       state.textRaw += evt.delta;
-      state.textEl.innerHTML = md(state.textRaw);
+      state.textEl._raw = state.textRaw;
+      scheduleMd(state.textEl);
       state.gotText = true;
       state.stepEl = null;
-      scrollBottom();
       break;
     }
     case 'tool_call': {
@@ -287,10 +316,12 @@ function renderEvent(evt, replay) {
       step.className = 'step running';
       const inp = evt.input || {};
       let target = '';
-      if (evt.name === 'write_file' || evt.name === 'read_file' || evt.name === 'delete_file') target = inp.path || '';
+      if (evt.name === 'write_file' || evt.name === 'read_file' || evt.name === 'delete_file' || evt.name === 'edit_file') target = inp.path || '';
       else if (evt.name === 'run_command') target = String(inp.command || '').slice(0, 40);
       else if (evt.name === 'list_dir') target = inp.path || '根目录';
       else if (evt.name === 'search_code') target = inp.pattern || '';
+      else if (evt.name === 'read_url') target = String(inp.url || '').slice(0, 50);
+      else if (evt.name === 'phone') target = String(inp.action || '') + (inp.app ? ' · ' + inp.app : '') + (inp.text ? ' · ' + String(inp.text).slice(0, 20) : '');
       else if (evt.name === 'start_project') target = (inp.type || 'auto') + (inp.install_deps ? ' +装依赖' : '');
       step.innerHTML = `<div class="step-head">
         <span class="step-ico">${TOOL_ICONS[evt.name] || '🔧'}</span>
@@ -306,10 +337,18 @@ function renderEvent(evt, replay) {
     }
     case 'output': {
       if (!state.stepEl) break;
-      const out = state.stepEl.querySelector('.step-out');
-      out.textContent = (out.textContent + evt.chunk).slice(-3000);
-      out.scrollTop = out.scrollHeight;
-      scrollBottom();
+      const step = state.stepEl;
+      step._buf = (step._buf || '') + evt.chunk;
+      if (step._raf) break;
+      step._raf = requestAnimationFrame(() => {
+        step._raf = 0;
+        const out = step.querySelector('.step-out');
+        if (!out) return;
+        out.textContent = (out.textContent + (step._buf || '')).slice(-3000);
+        step._buf = '';
+        out.scrollTop = out.scrollHeight;
+        scrollBottom();
+      });
       break;
     }
     case 'tool_result': {
@@ -365,6 +404,7 @@ function renderEvent(evt, replay) {
       break;
     }
     case 'done': {
+      const lastEl = state.textEl;
       state.textEl = null; state.textRaw = ''; state.stepEl = null;
       // 文字已在流式输出时显示过，done 里不再重复渲染（修重复回答 bug）
       if (evt.text && evt.text.trim() && !state.gotText) {
@@ -375,6 +415,18 @@ function renderEvent(evt, replay) {
         b.appendChild(d);
       }
       state.gotText = false;
+      if (lastEl && lastEl.isConnected) {
+        const raw = lastEl._raw || lastEl.textContent;
+        const cbtn = document.createElement('button');
+        cbtn.className = 'copy-btn';
+        cbtn.textContent = '📋 复制这段';
+        cbtn.addEventListener('click', async () => {
+          try { await navigator.clipboard.writeText(raw); cbtn.textContent = '✅ 已复制'; }
+          catch { toast('复制失败，可长按选中'); }
+        });
+        lastEl.appendChild(cbtn);
+      }
+      speakIfEnabled(evt.text);
       if (evt.previewUrl) {
         const b = aiBubble();
         const a = document.createElement('a');
@@ -420,6 +472,7 @@ function renderEvent(evt, replay) {
 }
 
 // ---------- 聊天 ----------
+let chatAbort = null;
 async function send(text) {
   text = (text || $('#input').value).trim();
   if (!text || state.running) return;
@@ -435,10 +488,12 @@ async function send(text) {
   showTyping();
 
   const decoder = new TextDecoder();
+  chatAbort = new AbortController();
   try {
     const resp = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: chatAbort.signal,
       body: JSON.stringify({
         project: state.current,
         sessionId: state.session ? state.session.id : null,
@@ -469,14 +524,16 @@ async function send(text) {
       }
     }
   } catch (e) {
-    renderEvent({ type: 'error', message: '连接中断：' + e.message }, false);
+    if (e && e.name === 'AbortError') renderEvent({ type: 'cancelled' }, false);
+    else renderEvent({ type: 'error', message: '连接中断：' + e.message }, false);
   }
+  chatAbort = null;
   hideTyping();
   state.running = false;
   $('#send').classList.remove('hidden');
   $('#cancel').classList.add('hidden');
   $('#input').focus();
-  await loadProjects();
+  loadProjects(); // 后台刷新，不阻塞界面
 }
 
 function autoGrow() {
@@ -490,14 +547,131 @@ $('#input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
 });
 $('#cancel').addEventListener('click', async () => {
-  if (!state.session) return;
-  try {
-    await api('/api/cancel', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId: state.session.id }),
-    });
-  } catch {}
+  const sid = state.session && state.session.id;
+  // 先本地立即断开，界面马上停住；再通知服务端停任务
+  if (chatAbort) { try { chatAbort.abort(); } catch {} }
+  if (sid) {
+    try {
+      await api('/api/cancel', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: sid }),
+      });
+    } catch {}
+  }
 });
+
+// ---------- 语音朗读 ----------
+function speakIfEnabled(text) {
+  if (localStorage.getItem('pv:tts') !== '1') return;
+  if (!('speechSynthesis' in window)) return;
+  const clean = String(text || '').replace(/[#*`>_-]/g, '').trim().slice(0, 500);
+  if (!clean) return;
+  try {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(clean);
+    u.lang = 'zh-CN';
+    u.rate = 1.05;
+    speechSynthesis.speak(u);
+  } catch {}
+}
+
+// ---------- 语音输入 ----------
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recog = null;
+const micBtn = $('#mic');
+if (micBtn) {
+  if (!SR) micBtn.style.display = 'none';
+  else micBtn.addEventListener('click', () => {
+    if (recog) { try { recog.stop(); } catch {} recog = null; micBtn.classList.remove('on'); return; }
+    recog = new SR();
+    recog.lang = 'zh-CN';
+    recog.interimResults = true;
+    recog.continuous = false;
+    recog.onresult = (e) => {
+      let t = '';
+      for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
+      $('#input').value = t;
+      autoGrow();
+    };
+    recog.onend = () => { recog = null; micBtn.classList.remove('on'); };
+    recog.onerror = () => { recog = null; micBtn.classList.remove('on'); toast('语音识别失败，检查麦克风权限'); };
+    try {
+      recog.start();
+      micBtn.classList.add('on');
+      toast('说话吧，说完自动填进输入框');
+    } catch { toast('无法启动语音识别'); }
+  });
+}
+
+// ---------- 设置 ----------
+async function openSettings() {
+  let st = { model: '', autoOpen: true, allowAnyPath: true };
+  try { st = await api('/api/settings'); } catch {}
+  const tts = localStorage.getItem('pv:tts') === '1';
+  const modelBtn = (k, label) => `<button class="chip${st.model === k ? ' on' : ''}" data-model="${k}">${label}</button>`;
+  showSheet(`<div class="sheet-title">⚙️ 设置 <button class="sheet-close" id="sheetClose">✕</button></div>
+    <div class="set-group"><div class="set-label">用哪个模型</div>
+      <div class="chips">${modelBtn('deepseek-v4-pro', 'V4 Pro · 更聪明')}${modelBtn('deepseek-flash', 'Flash · 更快更省')}</div></div>
+    <div class="set-group"><div class="set-label">语音</div>
+      <button class="chip${tts ? ' on' : ''}" id="setTts">${tts ? '🔊 朗读回复：开' : '🔇 朗读回复：关'}</button></div>
+    <div class="set-group"><div class="set-label">做完自动打开预览</div>
+      <button class="chip${st.autoOpen ? ' on' : ''}" id="setAuto">${st.autoOpen ? '已开启' : '已关闭'}</button></div>
+    <div class="set-group"><div class="set-label">Lewis 可读写整个手机存储</div>
+      <button class="chip${st.allowAnyPath ? ' on' : ''}" id="setAny">${st.allowAnyPath ? '已开启' : '已关闭'}</button></div>
+    <div class="set-group"><button class="chip" id="setBackup">⬇ 备份所有项目（zip）</button></div>
+    <div class="empty">${VERSION} · 手机版 Agent</div>`);
+  $('#sheetClose').addEventListener('click', hideSheet);
+  document.querySelectorAll('[data-model]').forEach((b) => b.addEventListener('click', async () => {
+    try {
+      await api('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: b.dataset.model }) });
+      hideSheet();
+      toast('已切换模型');
+    } catch (e) { toast(e.message); }
+  }));
+  $('#setTts').addEventListener('click', () => {
+    const now = localStorage.getItem('pv:tts') === '1';
+    localStorage.setItem('pv:tts', now ? '0' : '1');
+    openSettings();
+  });
+  $('#setAuto').addEventListener('click', async () => {
+    try {
+      const r = await api('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ autoOpen: !st.autoOpen }) });
+      st.autoOpen = r.autoOpen;
+      openSettings();
+    } catch (e) { toast(e.message); }
+  });
+  $('#setAny').addEventListener('click', async () => {
+    try {
+      const r = await api('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ allowAnyPath: !st.allowAnyPath }) });
+      st.allowAnyPath = r.allowAnyPath;
+      openSettings();
+    } catch (e) { toast(e.message); }
+  });
+  $('#setBackup').addEventListener('click', () => {
+    location.href = '/api/backup';
+    hideSheet();
+    toast('正在打包所有项目…');
+  });
+}
+const btnSettings = $('#btnSettings');
+if (btnSettings) btnSettings.addEventListener('click', openSettings);
+
+// ---------- 新聊天 ----------
+function newChat() {
+  if (chatAbort) { try { chatAbort.abort(); } catch {} }
+  state.session = null;
+  state.running = false;
+  state.textEl = null; state.textRaw = ''; state.stepEl = null; state.gotText = false;
+  $('#send').classList.remove('hidden');
+  $('#cancel').classList.add('hidden');
+  hideTyping();
+  clearLog();
+  updateLanding();
+  $('#input').focus();
+  toast('已开新聊天');
+}
+const btnNewChat = $('#btnNewChat');
+if (btnNewChat) btnNewChat.addEventListener('click', () => { hideSheet(); newChat(); });
 
 // 欢迎页快捷指令
 for (const chip of document.querySelectorAll('.chip')) {
@@ -542,24 +716,49 @@ $('#keySave').addEventListener('click', async () => {
   } catch (e) { toast('保存失败：' + e.message); }
 });
 
+// ---------- 安装到桌面（PWA，装完就是独立 App，没有地址栏） ----------
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installPrompt = e;
+  const btn = $('#btnInstall');
+  if (btn) btn.classList.remove('hidden');
+});
+const installBtn = $('#btnInstall');
+if (installBtn) {
+  installBtn.addEventListener('click', async () => {
+    if (!installPrompt) {
+      toast('用 Chrome ⋮ 菜单 → 添加到主屏幕');
+      return;
+    }
+    installPrompt.prompt();
+    try { await installPrompt.userChoice; } catch {}
+    installPrompt = null;
+    installBtn.classList.add('hidden');
+  });
+}
+
 // ---------- 启动 ----------
 async function init() {
-  $('#ver').textContent = VERSION + ' · DeepSeek · 手机版 Agent';
+  $('#ver').textContent = VERSION + ' · 手机版 Agent';
+  // 首屏尽快可用：两个接口并发拿，历史会话异步加载（v1.7 提速）
   try {
-    const st = await api('/api/state');
+    const [st, projects] = await Promise.all([api('/api/state'), api('/api/projects')]);
     state.configured = st.configured;
     state.lanIps = st.lanIps || [];
     state.port = st.port;
+    state.projects = projects || [];
     await initKey();
-    await loadProjects();
-    const saved = localStorage.getItem('pv:project');
-    if (saved && state.projects.some((p) => p.name === saved)) await selectProject(saved);
-    else if (state.projects.length) await selectProject(state.projects[0].name);
-    updatePill();
     updateLanding();
+    const saved = localStorage.getItem('pv:project');
+    const first = state.projects.find((p) => p.name === saved) || state.projects[0];
+    if (first) selectProject(first.name); // 故意不 await：先让输入框可用
+    updatePill();
     if ('serviceWorker' in navigator &&
       (location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'https:')) {
-      navigator.serviceWorker.register('/sw.js').catch(() => {});
+      navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
+        .then((r) => r && r.update && r.update())
+        .catch(() => {});
     }
   } catch (e) {
     const b = aiBubble();

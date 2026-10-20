@@ -1,5 +1,5 @@
 /* Service Worker：网络优先（保证更新即时生效），断网时回退缓存 */
-const CACHE = 'phone-vibe-v4';
+const CACHE = 'phone-vibe-v11';
 
 self.addEventListener('install', (e) => {
   e.waitUntil(self.skipWaiting());

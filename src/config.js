@@ -58,6 +58,13 @@ module.exports = {
   get projectsDir() { return projectsDir(); },
   get dataDir() { return env.DATA_DIR ? path.resolve(env.DATA_DIR) : path.join(APP_DIR, 'data'); },
   get isMock() { return this.apiKey === 'mock'; },
+  // v1.5：是否允许 Lewis 读写项目目录以外的手机存储（默认允许）。
+  // 想恢复"只能在项目文件夹里干活"的沙盒模式：.env 里写 ALLOW_ANY_PATH=0
+  get allowAnyPath() { return env.ALLOW_ANY_PATH !== '0'; },
+  // 局域网/公网访问密码（本机 127.0.0.1 免密）；install.sh 首次安装自动生成写进 .env
+  get accessToken() { return String(env.ACCESS_TOKEN || '').trim(); },
+  // 服务端版本号（从 package.json 读，/api/state 会返回，用来确认手机上跑的是哪一版）
+  get version() { try { return require('../package.json').version || '0.0.0'; } catch { return '0.0.0'; } },
   lanIPs,
   reload,
   // 把 API Key 写入 .env（统一写成 DEEPSEEK_API_KEY，兼容替换旧字段名，原子写）
@@ -75,6 +82,25 @@ module.exports = {
     if (!done) {
       if (lines.length && lines[lines.length - 1].trim() !== '') lines.push('');
       lines.push(`DEEPSEEK_API_KEY=${key.trim()}`);
+    }
+    const tmp = p + '.tmp';
+    fs.writeFileSync(tmp, lines.join('\n') + '\n');
+    fs.renameSync(tmp, p);
+    reload();
+  },
+  // 改任意一项配置并写回 .env（模型、自动打开等）
+  saveSetting(key, value) {
+    if (!/^[A-Z0-9_]+$/.test(key)) throw new Error('非法配置名');
+    const p = path.join(APP_DIR, '.env');
+    const lines = fs.existsSync(p) ? fs.readFileSync(p, 'utf8').split(/\r?\n/) : [];
+    const re = new RegExp('^\\s*' + key + '\\s*=');
+    let done = false;
+    for (let i = 0; i < lines.length; i++) {
+      if (re.test(lines[i])) { lines[i] = `${key}=${value}`; done = true; break; }
+    }
+    if (!done) {
+      if (lines.length && lines[lines.length - 1].trim() !== '') lines.push('');
+      lines.push(`${key}=${value}`);
     }
     const tmp = p + '.tmp';
     fs.writeFileSync(tmp, lines.join('\n') + '\n');

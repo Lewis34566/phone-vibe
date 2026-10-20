@@ -201,7 +201,7 @@ async function handleChat(req, res) {
     activeRuns.delete(runKey);
     session.updatedAt = Date.now();
     if (session.messages.length > 60) session.messages = session.messages.slice(session.messages.length - 60);
-    if (session.events.length > 2000) session.events = session.events.slice(session.events.length - 1500);
+    if (session.events.length > 400) session.events = session.events.slice(session.events.length - 300);
     try { store.saveSession(session); } catch {}
     sse.end();
   }
@@ -211,6 +211,8 @@ async function handleChat(req, res) {
 async function handleApi(req, res, pathname, method) {
   if (pathname === '/api/state' && method === 'GET') {
     return sendJSON(res, 200, {
+      version: config.version,
+      allowAnyPath: config.allowAnyPath,
       configured: config.configured,
       keyMasked: config.apiKey ? config.apiKey.slice(0, 7) + '…' + config.apiKey.slice(-4) : '',
       provider: 'deepseek',
@@ -236,6 +238,38 @@ async function handleApi(req, res, pathname, method) {
       return res.end(zip);
     } catch (e) {
       return sendJSON(res, 500, { error: '打包失败：' + e.message });
+    }
+  }
+  if (pathname === '/api/settings' && method === 'GET') {
+    return sendJSON(res, 200, {
+      model: config.model,
+      autoOpen: config.autoOpen,
+      allowAnyPath: config.allowAnyPath,
+      models: ['deepseek-v4-pro', 'deepseek-flash'],
+    });
+  }
+  if (pathname === '/api/settings' && method === 'POST') {
+    const body = await readBody(req);
+    try {
+      if (body.model && /^[a-zA-Z0-9._-]{2,40}$/.test(body.model)) config.saveSetting('MODEL', body.model);
+      if (body.autoOpen !== undefined) config.saveSetting('AUTO_OPEN', body.autoOpen ? '1' : '0');
+      if (body.allowAnyPath !== undefined) config.saveSetting('ALLOW_ANY_PATH', body.allowAnyPath ? '1' : '0');
+    } catch (e) {
+      return sendJSON(res, 400, { error: '保存失败：' + e.message });
+    }
+    return sendJSON(res, 200, { ok: true, model: config.model, autoOpen: config.autoOpen, allowAnyPath: config.allowAnyPath });
+  }
+  if (pathname === '/api/backup' && method === 'GET') {
+    try {
+      const zip = await projects.backupAll();
+      res.writeHead(200, {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': 'attachment; filename="PhoneProjects-backup.zip"',
+        'Content-Length': zip.length,
+      });
+      return res.end(zip);
+    } catch (e) {
+      return sendJSON(res, 500, { error: '备份失败：' + e.message });
     }
   }
   if (pathname === '/api/key' && method === 'POST') {
@@ -309,6 +343,33 @@ async function handleApi(req, res, pathname, method) {
   return sendJSON(res, 404, { error: '接口不存在' });
 }
 
+// ---------- 访问密码（只在公网/局域网访问时要求，本机 127.0.0.1 免密） ----------
+// 从 .env 的 ACCESS_TOKEN 读（install.sh 首次安装自动生成）；进程环境变量优先（start-public.ps1 用）
+const ACCESS_TOKEN = String(process.env.ACCESS_TOKEN || config.accessToken || '').trim();
+
+function isLoopback(req) {
+  const ip = String((req.socket && req.socket.remoteAddress) || '');
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+}
+
+function checkAuth(req, res) {
+  if (!ACCESS_TOKEN || isLoopback(req)) return true;
+  const h = String(req.headers.authorization || '');
+  if (h.startsWith('Basic ')) {
+    try {
+      const dec = Buffer.from(h.slice(6), 'base64').toString('utf8');
+      const pass = dec.slice(dec.indexOf(':') + 1);
+      if (pass === ACCESS_TOKEN) return true;
+    } catch {}
+  }
+  res.writeHead(401, {
+    'WWW-Authenticate': 'Basic realm="Phone Agent", charset="UTF-8"',
+    'Content-Type': 'text/plain; charset=utf-8',
+  });
+  res.end('需要访问密码（用户名随便填，密码在电脑的启动窗口里）');
+  return false;
+}
+
 // ---------- 主服务 ----------
 const server = http.createServer(async (req, res) => {
   let pathname, search;
@@ -319,6 +380,7 @@ const server = http.createServer(async (req, res) => {
   } catch {
     return sendJSON(res, 400, { error: '路径编码错误' });
   }
+  if (!checkAuth(req, res)) return;
   try {
     if (pathname.startsWith('/api/')) return await handleApi(req, res, pathname, req.method);
     if (pathname.startsWith('/p/')) return serveProject(req, res, pathname, search);
@@ -345,7 +407,7 @@ server.listen(config.port, '0.0.0.0', () => {
   console.log('');
   console.log('════════════════════════════════════════════════');
   console.log('  📱 手机版 Agent 已启动');
-  console.log(`  本机访问:   http://localhost:${config.port}`);
+  console.log(`  本机访问:   http://127.0.0.1:${config.port}`);
   for (const ip of config.lanIPs()) {
     console.log(`  局域网访问: http://${ip}:${config.port}  (同一 WiFi 的手机/电脑可打开)`);
   }
@@ -354,6 +416,7 @@ server.listen(config.port, '0.0.0.0', () => {
   if (config.isMock) console.log('  API Key:    演示模式（mock）—— 填入真实 Key 后生效');
   else if (config.configured) console.log('  API Key:    已配置');
   else console.log('  API Key:    未配置 —— 打开网页后在顶部横幅里粘贴');
+  if (ACCESS_TOKEN) console.log(`  访问密码:   ${ACCESS_TOKEN}  （局域网/公网打开时需要，本机免密）`);
   console.log('════════════════════════════════════════════════');
 });
 
