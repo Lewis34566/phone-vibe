@@ -60,18 +60,37 @@ function md(s) {
   return t;
 }
 
-// 流式渲染节流：手机上每个 token 都把整段 markdown 重排一次会很卡，
-// 合并成 70ms 一次渲染，体感顺滑很多（v1.5）
-// 重排会替换 innerHTML，done 事件里追加的「复制这段」按钮要保留
+// 增量渲染（v1.9.1）：整段重排 markdown 在手机上会占满主线程——
+// 回答越长界面越卡、点了没反应。改成只把「已稳定部分」追加进页面，
+// 每 tick 只重排末尾一小段，界面全程跟手。
+// 复制按钮由 done 事件追加到 el 上，不再有 innerHTML 整体替换，不会被冲掉。
 function scheduleMd(el) {
   if (el._mdTimer) return;
   el._mdTimer = setTimeout(() => {
     el._mdTimer = 0;
-    const keep = el.querySelector('.copy-btn');
-    el.innerHTML = md(el._raw || '');
-    if (keep) el.appendChild(keep);
+    if (!el._body) {
+      el._body = document.createElement('div');
+      el._tail = document.createElement('span');
+      el.appendChild(el._body);
+      el.appendChild(el._tail);
+      el._flushed = 0;
+    }
+    const raw = String(el._raw || '');
+    // 安全切点：距结尾 40 字符以内的最后一个换行（标题/列表/粗体/行内码都按行，
+    // 切在行尾不会把 ** 或 ` 从中间劈开）
+    let cut = raw.lastIndexOf('\n', raw.length - 40);
+    if (cut === -1 && raw.length - el._flushed > 800) {
+      // 罕见的长单行回答：找个空格硬切，防止末尾重排区无限变大
+      cut = raw.lastIndexOf(' ', raw.length - 60);
+      if (cut <= el._flushed) cut = raw.length - 60;
+    }
+    if (cut > el._flushed) {
+      el._body.insertAdjacentHTML('beforeend', md(raw.slice(el._flushed, cut + 1)));
+      el._flushed = cut + 1;
+    }
+    el._tail.innerHTML = md(raw.slice(el._flushed));
     scrollBottom();
-  }, 70);
+  }, 80);
 }
 
 function scrollBottom(force) {
