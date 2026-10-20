@@ -161,6 +161,36 @@ chmod +x ~/.termux/boot/termux-boot.sh
 
 ---
 
+## 发消息（短信 / 企业微信 / QQ / 微信）
+
+| 想发到哪 | 能力 | 怎么配 |
+|---|---|---|
+| 手机短信 | ✅ 全自动（发前弹窗确认） | 装 Termux:API 即可 |
+| 企业微信群 | ✅ 全自动 | `.env` 填 `WECOM_WEBHOOK_URL`（企业微信群 → 添加机器人 → 复制 webhook），重启服务 |
+| QQ 好友/群 | ✅ 全自动 | 电脑跑 NapCat 等 OneBot 机器人挂 QQ 小号，`.env` 填 `ONEBOT_API_URL` |
+| 微信个人消息 | ⚠️ 无法全自动（微信没有对外接口，谁家都一样） | 说"发微信给 XX"时 Lewis 会复制好内容并打开微信（你粘贴发送），或拉起分享面板（你选人发送） |
+
+直接说人话就行：「发短信给 138xxxx 说 我在路上了」「发到企业微信群：今日数据」「帮我把这段话发到 QQ 群 123456」「帮我发微信给妈妈：晚上回家吃饭」。
+
+---
+
+## 服务被杀 / 第二次打开打不开？
+
+手机系统（尤其小米 HyperOS）息屏久了会把后台 Termux 杀掉 → 再打开 App 会看到「服务没在跑」引导页（数据和项目都在，没丢）。三种办法：
+
+1. **桌面一键启动小部件**（最省事）：Termux 里执行
+   ```bash
+   pkg install -y termux-widget
+   mkdir -p ~/.shortcuts && cp ~/手机版Agent/scripts/widget-start.sh ~/.shortcuts/启动Agent && chmod +x ~/.shortcuts/启动Agent
+   ```
+   回桌面 → 长按空白 → 添加小部件 → Termux:Widget → 选「启动Agent」。以后点一下服务就回来。
+2. **让系统别杀**：设置 → 省电与电池 → Termux → **无限制**；应用自启动 → 允许；最近任务里把 Termux 卡片**下拉锁住**。
+3. **开机自启**：见上文第七步（Termux:Boot），重启手机自动拉起。
+
+> 注意：启动要用 `bash start.sh bg`（后台模式）。`bash start.sh` 前台模式关掉 Termux 窗口服务就停。
+
+---
+
 ## 常见问题
 
 **Q：start.sh 提示端口被占用？**

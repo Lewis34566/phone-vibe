@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b0e14">
+<title>服务没在跑 · 手机版 Agent</title>
+<style>
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+    background:#0b0e14; color:#e6e8f0; font:16px/1.7 system-ui,-apple-system,"PingFang SC",sans-serif;
+    padding:24px; box-sizing:border-box; }
+  .card { max-width:420px; width:100%; background:#151825; border:1px solid #232840; border-radius:16px; padding:26px; }
+  h1 { font-size:19px; margin:0 0 10px; }
+  p { color:#a7adc0; font-size:14px; margin:8px 0; }
+  code { background:#232840; padding:2px 8px; border-radius:6px; color:#9fb0ff; font-size:13px; word-break:break-all; }
+  .btn { display:block; text-align:center; text-decoration:none; padding:14px; border-radius:12px;
+    background:linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; font-weight:600; margin-top:14px; }
+  .dim { color:#6b7280; font-size:12px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>📴 服务没在跑</h1>
+  <p>手机上的 Agent 服务被系统停掉了（息屏省电/清理后台时会这样），手机系统后台把服务杀了——你的数据和项目都在，放心。</p>
+  <p>两步救回来：</p>
+  <p>1️⃣ 打开 Termux</p>
+  <p>2️⃣ 执行：<code>cd ~/手机版Agent && bash start.sh bg</code></p>
+  <p>然后回到本页点下面的按钮重试：</p>
+  <a class="btn" href="/?v=19">🔄 重新连接</a>
+  <p class="dim">提示：在手机「设置 → 省电与电池 → Termux 设为无限制」+ 最近任务里把 Termux 卡片下拉锁住，能大大减少被杀。</p>
+</div>
+</body>
+</html>

@@ -166,6 +166,21 @@ const TOOL_DEFS = [
       required: ['action'],
     },
   },
+  {
+    name: 'send_message',
+    description: '替你发消息。channel=sms 发短信（需确认）；wecom 发企业微信群机器人（需 .env 配 WECOM_WEBHOOK_URL）；qq 发 QQ 机器人消息（需 .env 配 ONEBOT_API_URL，如 NapCat）；share 拉起系统分享面板让用户在微信/QQ 里选人发送；clipboard 复制内容+打开微信/QQ 让用户粘贴。注意：微信个人消息无法全自动发送（微信没有对外接口），share/clipboard 是最接近的替代。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        channel: { type: 'string', enum: ['sms', 'wecom', 'qq', 'share', 'clipboard'], description: '发送通道' },
+        text: { type: 'string', description: '要发送的内容' },
+        to: { type: 'string', description: 'sms=手机号；qq=QQ 号或群号' },
+        qq_type: { type: 'string', enum: ['private', 'group'], description: 'qq 通道用：私聊 private（默认）或群 group' },
+        app: { type: 'string', description: 'clipboard 通道用：打开哪个 App，如 com.tencent.mm（微信）、com.tencent.mobileqq（QQ）' },
+      },
+      required: ['channel', 'text'],
+    },
+  },
 ];
 
 // ---------------- 危险命令判定 ----------------
@@ -571,6 +586,55 @@ async function executeTool(name, input, ctx) {
       }
       const brief = output.replace(/\s+/g, ' ').slice(0, 160);
       return { ok: r.exitCode === 0, summary: `${action} 完成${brief ? '：' + brief : ''}`, output: output.slice(0, 4000), data: { action, exitCode: r.exitCode } };
+    }
+    case 'send_message': {
+      const channel = String(input.channel || '');
+      const text = String(input.text || '');
+      if (!text) return { ok: false, summary: '发送内容不能为空', error: 'empty text', output: '' };
+      if (channel === 'sms') {
+        if (!input.to) return { ok: false, summary: 'sms 需要 to 号码', error: 'missing to', output: '' };
+        await state.approve(`要替你发短信给 ${input.to}：\n\n${text.slice(0, 300)}`);
+        const r = await runProcess('bash', ['-c', `termux-sms-send -n ${shq(input.to)} ${shq(text)}`], { cwd: projectDir, timeoutMs: 20000, signal: state.signal });
+        return { ok: r.exitCode === 0, summary: r.exitCode === 0 ? `短信已发给 ${input.to}` : '短信发送失败（可能没装 Termux:API）', output: (r.output || '').slice(0, 800), data: { channel } };
+      }
+      if (channel === 'wecom') {
+        if (!config.wecomWebhook) return { ok: false, summary: '没配置企业微信机器人', error: '在 .env 里填 WECOM_WEBHOOK_URL（企业微信群 → 添加机器人 → 复制 webhook 地址），然后重启服务', output: '' };
+        await state.approve(`发消息到企业微信群机器人：\n\n${text.slice(0, 300)}`);
+        try {
+          const resp = await fetch(config.wecomWebhook, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ msgtype: 'text', text: { content: text } }), signal: AbortSignal.timeout(15000) });
+          const body = await resp.text();
+          const ok = resp.ok && body.includes('"errcode":0');
+          return { ok, summary: ok ? '已发到企业微信群' : `企业微信返回错误（HTTP ${resp.status}）`, output: body.slice(0, 400), data: { channel } };
+        } catch (e) { return { ok: false, summary: '企业微信发送失败', error: String((e && e.message) || e), output: '' }; }
+      }
+      if (channel === 'qq') {
+        if (!config.onebotApi) return { ok: false, summary: '没配置 QQ 机器人', error: '在 .env 里填 ONEBOT_API_URL（如 http://192.168.1.5:3000，NapCat 等 OneBot 协议的 HTTP 接口），然后重启服务', output: '' };
+        if (!input.to) return { ok: false, summary: 'qq 需要 to（QQ 号或群号）', error: 'missing to', output: '' };
+        await state.approve(`发 QQ 消息给 ${input.to}：\n\n${text.slice(0, 300)}`);
+        const path = input.qq_type === 'group' ? '/send_group_msg' : '/send_private_msg';
+        const key = input.qq_type === 'group' ? 'group_id' : 'user_id';
+        try {
+          const resp = await fetch(config.onebotApi + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ [key]: Number(input.to) || input.to, message: text }), signal: AbortSignal.timeout(15000) });
+          const body = await resp.text();
+          let j = {}; try { j = JSON.parse(body); } catch {}
+          const ok = resp.ok && j.status === 'ok';
+          return { ok, summary: ok ? `QQ 消息已发给 ${input.to}` : `QQ 机器人返回错误：${j.wording || j.message || body.slice(0, 80)}`, output: body.slice(0, 400), data: { channel } };
+        } catch (e) { return { ok: false, summary: 'QQ 机器人发送失败', error: String((e && e.message) || e), output: '' }; }
+      }
+      if (channel === 'share') {
+        await state.approve(`拉起系统分享面板（你在微信/QQ 里选人发送）：\n\n${text.slice(0, 300)}`);
+        const cmd = `am start -a android.intent.action.SEND -t text/plain --es android.intent.extra.TEXT ${shq(text)} 2>/dev/null || (printf '%s' ${shq(text)} | termux-clipboard-set)`;
+        const r = await runProcess('bash', ['-c', cmd], { cwd: projectDir, timeoutMs: 15000, signal: state.signal });
+        const okShare = r.exitCode === 0 && !/Error/.test(r.output || '');
+        return { ok: okShare, summary: okShare ? '分享面板已弹出，选人发送即可' : '分享面板没弹出来，内容已复制到剪贴板——手动粘贴发送', output: (r.output || '').slice(0, 400), data: { channel } };
+      }
+      if (channel === 'clipboard') {
+        const app = String(input.app || 'com.tencent.mm');
+        const cmd = `printf '%s' ${shq(text)} | termux-clipboard-set && monkey -p ${shq(app)} -c android.intent.category.LAUNCHER 1`;
+        const r = await runProcess('bash', ['-c', cmd], { cwd: projectDir, timeoutMs: 15000, signal: state.signal });
+        return { ok: r.exitCode === 0, summary: `内容已复制到剪贴板，${app} 已打开——长按输入框粘贴发送`, output: (r.output || '').slice(0, 400), data: { channel } };
+      }
+      return { ok: false, summary: `不支持的通道：${channel}`, error: 'channel 必须是 sms/wecom/qq/share/clipboard', output: '' };
     }
     default:
       return { ok: false, summary: `未知工具 ${name}`, error: `unknown tool: ${name}`, output: '' };

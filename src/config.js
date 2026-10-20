@@ -63,6 +63,10 @@ module.exports = {
   get allowAnyPath() { return env.ALLOW_ANY_PATH !== '0'; },
   // 局域网/公网访问密码（本机 127.0.0.1 免密）；install.sh 首次安装自动生成写进 .env
   get accessToken() { return String(env.ACCESS_TOKEN || '').trim(); },
+  // 发消息通道（.env 配置后 send_message 工具可用）：
+  // WECOM_WEBHOOK_URL=企业微信群机器人 webhook；ONEBOT_API_URL=QQ OneBot 机器人（如 NapCat）HTTP API 地址
+  get wecomWebhook() { return String(env.WECOM_WEBHOOK_URL || '').trim(); },
+  get onebotApi() { return String(env.ONEBOT_API_URL || '').trim().replace(/\/+$/, ''); },
   // 服务端版本号（从 package.json 读，/api/state 会返回，用来确认手机上跑的是哪一版）
   get version() { try { return require('../package.json').version || '0.0.0'; } catch { return '0.0.0'; } },
   lanIPs,
