@@ -62,11 +62,14 @@ function md(s) {
 
 // 流式渲染节流：手机上每个 token 都把整段 markdown 重排一次会很卡，
 // 合并成 70ms 一次渲染，体感顺滑很多（v1.5）
+// 重排会替换 innerHTML，done 事件里追加的「复制这段」按钮要保留
 function scheduleMd(el) {
   if (el._mdTimer) return;
   el._mdTimer = setTimeout(() => {
     el._mdTimer = 0;
+    const keep = el.querySelector('.copy-btn');
     el.innerHTML = md(el._raw || '');
+    if (keep) el.appendChild(keep);
     scrollBottom();
   }, 70);
 }
@@ -354,6 +357,9 @@ function renderEvent(evt, replay) {
     case 'tool_result': {
       if (!state.stepEl) break;
       const step = state.stepEl;
+      // 取消还没执行的节流输出渲染，否则 evt.output（已含全部内容）之后又会追加一遍缓冲块
+      if (step._raf) { cancelAnimationFrame(step._raf); step._raf = 0; }
+      step._buf = '';
       step.classList.remove('running');
       step.classList.add(evt.ok ? 'ok' : 'err');
       const sum = step.querySelector('.step-sum');
