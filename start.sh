@@ -62,7 +62,7 @@ banner() {
 
 auto_open() {
   if [ -z "${NO_AUTO_OPEN:-}" ] && command -v termux-open-url >/dev/null 2>&1; then
-    termux-open-url "http://127.0.0.1:$PORT/?v=19" >/dev/null 2>&1 &
+    termux-open-url "http://127.0.0.1:$PORT/?v=192" >/dev/null 2>&1 &
   fi
 }
 

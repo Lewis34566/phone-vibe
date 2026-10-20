@@ -28,7 +28,7 @@
     <li>自动跳到最新界面</li>
   </ul>
   <div id="log">正在清理…</div>
-  <a class="btn" id="go" href="/?v=19">前往最新界面 →</a>
+  <a class="btn" id="go" href="/?v=192">前往最新界面 →</a>
 </div>
 <script>
 (async function () {
@@ -47,7 +47,7 @@
     }
     lines.push('3 秒后自动跳转…');
     log.className = 'ok';
-    setTimeout(() => { location.replace('/?v=19'); }, 3000);
+    setTimeout(() => { location.replace('/?v=192'); }, 3000);
   } catch (e) {
     lines.push('⚠️ 清理出错：' + e.message + '（直接点下面的按钮也行）');
     log.className = 'err';

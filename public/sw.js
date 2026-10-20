@@ -1,6 +1,6 @@
 /* Service Worker：网络优先（保证更新即时生效），断网时回退缓存；
    服务没在跑（Termux 被系统杀掉等）时，给导航请求展示引导页而不是白屏 */
-const CACHE = 'phone-vibe-v12';
+const CACHE = 'phone-vibe-v13';
 
 self.addEventListener('install', (e) => {
   e.waitUntil(

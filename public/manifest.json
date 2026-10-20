@@ -4,7 +4,7 @@
   "short_name": "Agent",
   "description": "在手机上用中文说需求，Lewis 自动写代码、运行并打开给你用",
   "lang": "zh-CN",
-  "start_url": "/?v=19",
+  "start_url": "/?v=192",
   "scope": "/",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui"],
@@ -18,6 +18,6 @@
     { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
-    { "name": "新需求", "short_name": "新需求", "url": "/?v=19" }
+    { "name": "新需求", "short_name": "新需求", "url": "/?v=192" }
   ]
 }
