@@ -13,7 +13,7 @@ const out = process.argv[2]
   : path.join(path.dirname(ROOT), '手机版Agent-安装包.zip');
 
 // .env 绝不能进安装包（里面有 API Key）；install.sh 会从 .env.example 生成
-const SKIP = new Set(['.git', 'node_modules', 'data', '.env', 'server.log', 'boot.log', '.server.pid']);
+const SKIP = new Set(['.git', 'node_modules', 'data', '.env', 'server.log', 'boot.log', '.server.pid', '.public-token', 'cloudflared.exe']);
 
 function collect(dir, base) {
   const files = [];

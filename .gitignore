@@ -5,3 +5,5 @@ dev-projects*/
 test-projects*/
 *.log
 .DS_Store
+.public-token
+cloudflared.exe

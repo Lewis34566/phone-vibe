@@ -346,6 +346,9 @@ async function handleApi(req, res, pathname, method) {
 // ---------- 访问密码（只在公网/局域网访问时要求，本机 127.0.0.1 免密） ----------
 // 从 .env 的 ACCESS_TOKEN 读（install.sh 首次安装自动生成）；进程环境变量优先（start-public.ps1 用）
 const ACCESS_TOKEN = String(process.env.ACCESS_TOKEN || config.accessToken || '').trim();
+// 公网隧道模式（start-public.ps1 设 PUBLIC_MODE=1）：cloudflared 转发过来的请求
+// 看起来都来自 127.0.0.1，loopback 免密会形同虚设——此模式下所有人（含本机）都要密码
+const PUBLIC_MODE = String(process.env.PUBLIC_MODE || '').trim() === '1';
 
 function isLoopback(req) {
   const ip = String((req.socket && req.socket.remoteAddress) || '');
@@ -353,7 +356,8 @@ function isLoopback(req) {
 }
 
 function checkAuth(req, res) {
-  if (!ACCESS_TOKEN || isLoopback(req)) return true;
+  if (!ACCESS_TOKEN) return true;
+  if (!PUBLIC_MODE && isLoopback(req)) return true;
   const h = String(req.headers.authorization || '');
   if (h.startsWith('Basic ')) {
     try {
