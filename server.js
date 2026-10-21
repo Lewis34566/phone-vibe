@@ -2,6 +2,7 @@
 // 手机本机 Vibe Coding —— 主服务（零 npm 依赖，Node >= 18）
 const http = require('http');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const config = require('./src/config');
 const store = require('./src/store');
@@ -246,6 +247,34 @@ async function handleApi(req, res, pathname, method) {
       autoOpen: config.autoOpen,
       allowAnyPath: config.allowAnyPath,
       models: ['deepseek-v4-pro', 'deepseek-flash'],
+    });
+  }
+  // 网络体检：本机（跑这个服务的设备）自测 DNS + 到常用目标的 443 连通性。
+  // 手机上的 Agent 用 http_request 调 http://<这台设备的IP>:8787/api/netcheck
+  // 就能拿到这台设备的网络报告（如：检测电脑的网络情况）
+  if (pathname === '/api/netcheck' && method === 'GET') {
+    const net = require('net');
+    const targets = [
+      { host: 'api.deepseek.com', label: 'DeepSeek API' },
+      { host: 'github.com', label: 'GitHub' },
+      { host: 'www.baidu.com', label: '百度（国内基准）' },
+    ];
+    const checks = await Promise.all(targets.map(({ host, label }) => new Promise((resolve) => {
+      const t0 = Date.now();
+      const sock = net.connect({ host, port: 443 });
+      sock.setTimeout(6000);
+      const done = (r) => { try { sock.destroy(); } catch {} resolve(r); };
+      sock.once('connect', () => done({ target: host, label, ok: true, ms: Date.now() - t0 }));
+      sock.once('timeout', () => done({ target: host, label, ok: false, ms: null, error: 'timeout' }));
+      sock.once('error', (e) => done({ target: host, label, ok: false, ms: null, error: e.code || e.message }));
+    })));
+    const allOk = checks.every((c) => c.ok);
+    return sendJSON(res, 200, {
+      ts: Date.now(),
+      device: os.hostname(),
+      lanIps: config.lanIPs(),
+      summary: allOk ? '网络正常：三个目标全部连通' : '有目标连不通：' + checks.filter((c) => !c.ok).map((c) => c.label).join('、'),
+      checks,
     });
   }
   if (pathname === '/api/settings' && method === 'POST') {
