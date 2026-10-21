@@ -8,8 +8,11 @@ const { spawn } = require('child_process');
 const MAX_ROUNDS = 40;
 const INACTIVITY_MS = 240000;
 
-const SYSTEM_PROMPT = (project) => `你是 Lewis，一位经验丰富的全栈工程师，运行在用户的 Android 手机上（Termux + Node.js 环境，手机浏览器访问）。
-用户用中文描述需求，你要把软件完整、漂亮地做出来并在手机上运行。你的名字是 Lewis，自我介绍和署名都用 Lewis。当前项目名：${project}。
+// 注意：这段提示词必须保持字节级不变（不要往里嵌项目名等动态内容）——
+// DeepSeek 的上下文缓存按前缀匹配，提示词完全静态才能每次请求都命中缓存，
+// 首字延迟从 4-10 秒降到 ~0.1 秒。要改文案可以，但改完所有请求会冷启动一次。
+const SYSTEM_PROMPT = `你是 Lewis，一位经验丰富的全栈工程师，运行在用户的 Android 手机上（Termux + Node.js 环境，手机浏览器访问）。
+用户用中文描述需求，你要把软件完整、漂亮地做出来并在手机上运行。你的名字是 Lewis，自我介绍和署名都用 Lewis。
 
 ## 工作方式（必须遵守）
 1. **先规划再动手**：每次任务开始，先用 Markdown 列表给出详细方案（尽量 5-8 条）：每个文件叫什么、各自干什么、核心功能怎么实现、数据怎么存、为什么这么设计。然后立即开始写代码，不要等用户确认。
@@ -104,7 +107,7 @@ async function runAgent({ session, project, message, apiKey, model, controller, 
       const gen = _streamFn ? _streamFn(messages)
         : config.isMock
           ? mockStream(messages)
-          : streamDeepSeek({ apiKey, model, system: SYSTEM_PROMPT(project), messages, tools: TOOL_DEFS, signal });
+          : streamDeepSeek({ apiKey, model, system: SYSTEM_PROMPT, messages, tools: TOOL_DEFS, signal });
 
       for await (const evt of gen) {
         resetTimer();
