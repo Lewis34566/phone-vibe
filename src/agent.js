@@ -27,6 +27,7 @@ const SYSTEM_PROMPT = (project) => `你是 Lewis，一位经验丰富的全栈�
 - 绝对不允许：白屏、undefined 报错、console 报错、桌面布局套手机上、丑。
 
 ## 技术约束
+- 单个文件控制在 1000 行以内（写紧凑但可读）；大应用宁可拆成 index.html + 单独 js/css 文件，避免一次输出太长被截断。
 - 优先纯静态单页（HTML/CSS/JS），只有需求确实需要后端（文件存储、定时任务、调用外部接口）才用 Node。
 - Node 项目尽量零依赖（用内置模块），必须装第三方包才 npm install（会弹窗让用户确认）。
 - 项目文件默认写进当前项目目录；同时你也能读写整个手机存储：Termux 家目录 ~、共享存储 /sdcard（等于 ~/storage/shared）。需要放到手机存储时直接用绝对路径（如 ~/storage/shared/记账/data.json）。
@@ -64,7 +65,8 @@ function previewInput(name, input) {
 function safeParse(s) { try { return JSON.parse(s || '{}'); } catch { return {}; } }
 
 // emit(evt): 事件推给前端（并进会话历史）；approve(question): 弹审批，返回 Promise<boolean>
-async function runAgent({ session, project, message, apiKey, model, controller, emit, approve }) {
+// _streamFn: 仅供测试注入的 LLM 流生成器
+async function runAgent({ session, project, message, apiKey, model, controller, emit, approve, _streamFn }) {
   const signal = controller.signal;
   let cancelled = false;
   let timedOut = false;
@@ -91,6 +93,7 @@ async function runAgent({ session, project, message, apiKey, model, controller, 
 
   try {
     let rounds = 0;
+    let autoContinues = 0; // 输出截断自动继续的次数（最多 3 次，防死循环）
     for (;;) {
       if (++rounds > MAX_ROUNDS) { emit({ type: 'error', message: '执行轮数超限，已停止' }); break; }
       if (signal.aborted) break;
@@ -98,9 +101,10 @@ async function runAgent({ session, project, message, apiKey, model, controller, 
       const blocks = [];
       let stopReason = null;
 
-      const gen = config.isMock
-        ? mockStream(messages)
-        : streamDeepSeek({ apiKey, model, system: SYSTEM_PROMPT(project), messages, tools: TOOL_DEFS, signal });
+      const gen = _streamFn ? _streamFn(messages)
+        : config.isMock
+          ? mockStream(messages)
+          : streamDeepSeek({ apiKey, model, system: SYSTEM_PROMPT(project), messages, tools: TOOL_DEFS, signal });
 
       for await (const evt of gen) {
         resetTimer();
@@ -128,10 +132,25 @@ async function runAgent({ session, project, message, apiKey, model, controller, 
       if (!cleaned.length) { emit({ type: 'error', message: '模型没有返回内容，请重试' }); break; }
       messages.push({ role: 'assistant', content: cleaned });
 
-      if (stopReason !== 'tool_use') {
-        if (stopReason === 'max_tokens') {
-          emit({ type: 'error', message: '输出达到上限，任务可能未完成——请再说一句「继续」让它接着做' });
+      if (stopReason === 'max_tokens') {
+        // 输出被截断：截断可能发生在最后一个工具调用的 JSON 里（会坏掉），
+        // 丢掉它，自动补一句「继续」让模型下轮重发，不用用户手动说
+        while (cleaned.length && cleaned[cleaned.length - 1].type === 'tool_use') cleaned.pop();
+        if (cleaned.length) messages[messages.length - 1].content = cleaned;
+        else messages.pop();
+        autoContinues++;
+        if (autoContinues <= 3) {
+          emit({ type: 'text', delta: '\n\n（内容较长，自动继续完成…）\n' });
+          messages.push({ role: 'user', content: '上一条输出被截断了，接着刚才的地方继续，把没写完的内容补完整。' });
+          continue;
         }
+        emit({ type: 'error', message: '输出多次达到上限，任务可能未完成——请再说一句「继续」让它接着做' });
+        const finalText = cleaned.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+        emit({ type: 'done', text: finalText, usage, previewUrl: startedUrl });
+        break;
+      }
+
+      if (stopReason !== 'tool_use') {
         const finalText = cleaned.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
         emit({ type: 'done', text: finalText, usage, previewUrl: startedUrl });
         break;
