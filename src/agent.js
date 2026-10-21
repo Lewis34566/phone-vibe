@@ -5,7 +5,7 @@ const { streamDeepSeek, mockStream } = require('./llm');
 const { TOOL_DEFS, executeTool } = require('./tools');
 const { spawn } = require('child_process');
 
-const MAX_ROUNDS = 40;
+const MAX_ROUNDS = 60;
 const INACTIVITY_MS = 240000;
 
 // 注意：这段提示词必须保持字节级不变（不要往里嵌项目名等动态内容）——
@@ -97,8 +97,13 @@ async function runAgent({ session, project, message, apiKey, model, controller, 
   try {
     let rounds = 0;
     let autoContinues = 0; // 输出截断自动继续的次数（最多 3 次，防死循环）
+    let consecutiveFails = 0; // 连续整轮失败的次数（熔断用）
+    let lastToolError = ''; // 最近一次工具错误（超限报错时带上，方便排查）
     for (;;) {
-      if (++rounds > MAX_ROUNDS) { emit({ type: 'error', message: '执行轮数超限，已停止' }); break; }
+      if (++rounds > MAX_ROUNDS) {
+        emit({ type: 'error', message: `执行轮数超限（${MAX_ROUNDS} 轮），已自动停住。直接说「继续」它会接着做。${lastToolError ? '\n最近一次错误：' + lastToolError : ''}` });
+        break;
+      }
       if (signal.aborted) break;
 
       const blocks = [];
@@ -182,8 +187,15 @@ async function runAgent({ session, project, message, apiKey, model, controller, 
           needsInstall: !!res.data?.needsInstall,
         });
         results.push({ tu, res });
+        if (!res.ok) lastToolError = String(res.error || res.summary || '');
       }
       if (signal.aborted) break;
+      // 熔断：连续 5 轮工具全部失败 = 卡住了，停掉并把原因告诉用户，而不是烧完所有轮数
+      if (results.length) consecutiveFails = results.every(({ res }) => !res.ok) ? consecutiveFails + 1 : 0;
+      if (consecutiveFails >= 5) {
+        emit({ type: 'error', message: `连续 ${consecutiveFails} 轮工具调用全部失败，疑似卡住，已自动停住。${lastToolError ? '\n最近错误：' + lastToolError : ''}` });
+        break;
+      }
       messages.push({
         role: 'user',
         content: results.map(({ tu, res }) => ({
