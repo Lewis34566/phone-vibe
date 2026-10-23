@@ -153,6 +153,41 @@ async function* streamDeepSeek({ apiKey, model, system, messages, tools, maxToke
   throw lastErr || new Error('DeepSeek API 请求失败');
 }
 
+// ---------- 图片理解：用 deepseek-flash 的视觉能力把图片转成文字描述 ----------
+// （主模型 v4-pro 不支持图片输入；flash 支持。描述后交给主 Agent 正常处理）
+async function describeImage({ apiKey, imageUrl, signal }) {
+  const resp = await fetch(API_URL, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'deepseek-flash',
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: '详细描述这张图片的内容：1) 所有可见文字逐字转写（尤其是中文）；2) 物体、人物、场景；3) 如果是界面/文档/图表，说明结构和关键信息；4) 颜色风格。用中文，尽量具体。' },
+          { type: 'image_url', image_url: { url: imageUrl } },
+        ],
+      }],
+      max_tokens: 2000,
+      temperature: 0.3,
+      stream: false,
+    }),
+    signal,
+  });
+  if (!resp.ok) {
+    let msg = `HTTP ${resp.status}`;
+    try { const j = await resp.json(); if (j.error && j.error.message) msg = j.error.message; } catch {}
+    throw new Error(`图片识别失败：${msg}`);
+  }
+  const j = await resp.json();
+  const text = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
+  if (!text.trim()) throw new Error('图片识别返回空内容');
+  return text.trim();
+}
+
 // ================= 演示模式（API Key=mock）=================
 // 没有 Key 也能体验完整流程：模拟 Lewis 写一个记账小工具
 const DEMO_HTML = `<!doctype html>
@@ -319,4 +354,4 @@ async function* mockStream(messages) {
   yield { type: 'message_stop' };
 }
 
-module.exports = { streamDeepSeek, mockStream };
+module.exports = { streamDeepSeek, mockStream, describeImage };

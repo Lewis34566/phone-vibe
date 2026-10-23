@@ -1,7 +1,7 @@
 'use strict';
 const config = require('./config');
 const projects = require('./projects');
-const { streamDeepSeek, mockStream } = require('./llm');
+const { streamDeepSeek, mockStream, describeImage } = require('./llm');
 const { TOOL_DEFS, executeTool } = require('./tools');
 const { spawn } = require('child_process');
 
@@ -30,6 +30,7 @@ const SYSTEM_PROMPT = `你是 Lewis，一位经验丰富的全栈工程师，运
 - 绝对不允许：白屏、undefined 报错、console 报错、桌面布局套手机上、丑。
 
 ## 技术约束
+- 用户可能附带图片：图片已经由视觉模型转成详细文字描述（以「[用户附带图片…的详细描述]」形式出现在消息里），把它当作用户提供的信息来理解和使用；回复时不要说"我看不到图"。
 - 单个文件控制在 1000 行以内（写紧凑但可读）；大应用宁可拆成 index.html + 单独 js/css 文件，避免一次输出太长被截断。
 - 优先纯静态单页（HTML/CSS/JS），只有需求确实需要后端（文件存储、定时任务、调用外部接口）才用 Node。
 - Node 项目尽量零依赖（用内置模块），必须装第三方包才 npm install（会弹窗让用户确认）。
@@ -70,7 +71,8 @@ function safeParse(s) { try { return JSON.parse(s || '{}'); } catch { return {};
 
 // emit(evt): 事件推给前端（并进会话历史）；approve(question): 弹审批，返回 Promise<boolean>
 // _streamFn: 仅供测试注入的 LLM 流生成器
-async function runAgent({ session, project, message, apiKey, model, controller, emit, approve, _streamFn }) {
+// images: 用户附带的图片 dataURL 数组（最多 3 张），先由视觉模型转成文字描述再参与对话
+async function runAgent({ session, project, message, apiKey, model, controller, emit, approve, _streamFn, images }) {
   const signal = controller.signal;
   let cancelled = false;
   let timedOut = false;
@@ -89,7 +91,21 @@ async function runAgent({ session, project, message, apiKey, model, controller, 
   const ctx = { projectDir: projects.projectPath(project), projectName: project, state };
 
   const messages = (session.messages || []).slice();
-  messages.push({ role: 'user', content: message });
+  // 图片 → 先用 deepseek-flash 视觉模型转成详细文字描述（主模型 v4-pro 不支持看图）
+  let userContent = message;
+  if (images && images.length && !config.isMock) {
+    emit({ type: 'text', delta: '📷 正在识别图片…\n' });
+    for (let i = 0; i < Math.min(images.length, 3); i++) {
+      const label = images.length > 1 ? ` ${i + 1}` : '';
+      try {
+        const desc = await describeImage({ apiKey, imageUrl: images[i], signal });
+        userContent += `\n\n[用户附带图片${label}的详细描述]\n${desc}`;
+      } catch (e) {
+        userContent += `\n\n[用户附带图片${label}：识别失败——${(e && e.message) || e}]`;
+      }
+    }
+  }
+  messages.push({ role: 'user', content: userContent });
 
   let startedUrl = null;
   const usage = { input: 0, output: 0 };

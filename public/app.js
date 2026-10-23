@@ -311,7 +311,17 @@ function renderEvent(evt, replay) {
   hideTyping();
   switch (evt.type) {
     case 'user': {
-      userBubble(evt.text);
+      const b = userBubble(evt.text);
+      if (evt.images && evt.images.length) {
+        const row = document.createElement('div');
+        row.className = 'bubble-imgs';
+        for (const u of evt.images) {
+          const im = document.createElement('img');
+          im.src = u;
+          row.appendChild(im);
+        }
+        b.appendChild(row);
+      }
       state.textEl = null; state.textRaw = ''; state.stepEl = null; state.gotText = false;
       updateLanding();
       scrollBottom(true);
@@ -504,6 +514,9 @@ async function send(text) {
   text = (text || $('#input').value).trim();
   if (!text || state.running) return;
   $('#input').value = '';
+  const imgs = pendingImages.slice(); // 先捕获，body 构建时用；预览条现在清掉
+  pendingImages.length = 0;
+  renderImgRow();
   autoGrow();
   if (!state.current) state.current = '新项目';
   updatePill();
@@ -525,6 +538,7 @@ async function send(text) {
         project: state.current,
         sessionId: state.session ? state.session.id : null,
         message: text,
+        images: imgs,
       }),
     });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -629,6 +643,73 @@ if (micBtn) {
     } catch { toast('无法启动语音识别'); }
   });
 }
+
+// ---------- 拍照/传图 ----------
+const pendingImages = [];
+function renderImgRow() {
+  const row = $('#imgRow');
+  if (!row) return;
+  row.innerHTML = '';
+  if (!pendingImages.length) { row.classList.add('hidden'); return; }
+  row.classList.remove('hidden');
+  pendingImages.forEach((url, i) => {
+    const c = document.createElement('div');
+    c.className = 'img-chip';
+    const im = document.createElement('img');
+    im.src = url;
+    const x = document.createElement('button');
+    x.textContent = '✕';
+    x.title = '移除';
+    x.addEventListener('click', () => { pendingImages.splice(i, 1); renderImgRow(); });
+    c.appendChild(im); c.appendChild(x);
+    row.appendChild(c);
+  });
+}
+function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, 1280 / Math.max(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      const cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      cv.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(cv.toDataURL('image/jpeg', 0.75));
+    };
+    img.onerror = () => reject(new Error('图片读取失败'));
+    img.src = URL.createObjectURL(file);
+  });
+}
+function pickImage(capture) {
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'image/*';
+  if (capture) inp.setAttribute('capture', 'environment');
+  inp.addEventListener('change', async () => {
+    const f = inp.files && inp.files[0];
+    if (!f) return;
+    if (pendingImages.length >= 3) return toast('最多 3 张图');
+    try {
+      toast('处理图片中…');
+      const url = await compressImage(f);
+      if (url.length > 5 * 1024 * 1024) return toast('图片太大，换一张试试');
+      pendingImages.push(url);
+      renderImgRow();
+      toast('已添加，发送时一起发给 Lewis');
+    } catch { toast('图片处理失败'); }
+  });
+  inp.click();
+}
+const camBtn = $('#cam');
+if (camBtn) camBtn.addEventListener('click', () => {
+  showSheet(`<div class="sheet-title">📷 发送图片 <button class="sheet-close" id="sheetClose">✕</button></div>
+    <div class="chips"><button class="chip" id="camTake">📸 拍照</button><button class="chip" id="camPick">🖼 从相册选</button></div>
+    <div class="empty">图片会先给视觉模型看，再交给 Lewis 回答（最多 3 张）。</div>`);
+  $('#sheetClose').addEventListener('click', hideSheet);
+  $('#camTake').addEventListener('click', () => { hideSheet(); pickImage(true); });
+  $('#camPick').addEventListener('click', () => { hideSheet(); pickImage(false); });
+});
 
 // ---------- 设置 ----------
 async function openSettings() {

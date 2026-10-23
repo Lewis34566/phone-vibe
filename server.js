@@ -123,9 +123,13 @@ function serveProject(req, res, pathname, search) {
 // ---------- 聊天（SSE）----------
 async function handleChat(req, res) {
   let body;
-  try { body = await readBody(req); } catch (e) { return sendJSON(res, 400, { error: e.message }); }
+  try { body = await readBody(req, 12 * 1024 * 1024); } catch (e) { return sendJSON(res, 400, { error: e.message }); }
   const message = String(body.message || '').trim();
   if (!message) return sendJSON(res, 400, { error: '消息不能为空' });
+  // 附带图片（dataURL，最多 3 张，单张 ≤ 5MB）
+  const images = Array.isArray(body.images)
+    ? body.images.filter((i) => typeof i === 'string' && /^data:image\/(jpeg|jpg|png|webp);base64,/.test(i) && i.length < 7 * 1024 * 1024).slice(0, 3)
+    : [];
 
   const sse = startSSE(res);
   if (activeRuns.size > 0) {
@@ -158,8 +162,9 @@ async function handleChat(req, res) {
   const runKey = session.id;
   activeRuns.set(runKey, { controller });
 
-  const emit = (evt) => {
-    session.events.push(evt);
+  // stored 用于写入会话历史（图片事件只发给客户端，历史里不存 base64 防膨胀）
+  const emit = (evt, stored) => {
+    session.events.push(stored || evt);
     sse.send(evt);
     if (['tool_result', 'done', 'error', 'cancelled'].includes(evt.type)) {
       try { store.saveSession(session); } catch {}
@@ -178,7 +183,7 @@ async function handleChat(req, res) {
   });
 
   emit({ type: 'chat_meta', sessionId: session.id, project, title: session.title });
-  emit({ type: 'user', text: message });
+  emit({ type: 'user', text: message, images }, { type: 'user', text: message });
 
   // 客户端断开 → 取消任务并拒绝所有待审批
   res.on('close', () => {
@@ -192,7 +197,7 @@ async function handleChat(req, res) {
 
   try {
     await runAgent({
-      session, project, message,
+      session, project, message, images,
       apiKey: config.apiKey, model: config.model,
       controller, emit, approve,
     });
