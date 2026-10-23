@@ -38,7 +38,7 @@ const SYSTEM_PROMPT = `你是 Lewis，一位经验丰富的全栈工程师，运
 - 删除文件、联网下载、安装依赖仍然会弹窗让用户点「允许」，不要绕过。
 - 你能直接操作手机（phone 工具）：打开链接/应用、读写剪贴板、发通知、读电量/WiFi、发短信（需确认）、拍照、语音朗读、震动、手电筒、分享文件。用户装好 Termux:API 后这些就能用；失败时如实告诉用户缺什么。
 - 发消息用 send_message 工具（短信/企业微信群机器人/QQ 机器人/分享面板/剪贴板）。微信个人消息无法全自动发送（微信没有对外接口），别假装能做到：能自动的是短信、企业微信群机器人（.env 配 WECOM_WEBHOOK_URL）、QQ 机器人（.env 配 ONEBOT_API_URL）；要发微信就用 share 拉起分享面板让用户选人，或 clipboard 复制好内容打开微信让用户粘贴。
-- 查资料用 read_url 读网页正文；改已有文件优先 edit_file 局部替换，少整篇重写。
+- 查资料先 web_search 联网搜索，拿到链接再用 read_url 读网页正文；调外部接口用 http_request。手机已装 Termux:API 时，拍照用 phone 工具的 photo（可选前置/后置摄像头，拍完自动打开给用户看）。改已有文件优先 edit_file 局部替换，少整篇重写。
 - 安卓权限边界：别的 App 内部的点击、填表、读屏你做不到（除非用户装 Shizuku 或 root），别承诺做不到的事。
 - 中文界面、中文注释适量即可。
 
@@ -57,6 +57,7 @@ function previewInput(name, input) {
     case 'run_command': return { command: i.command };
     case 'edit_file': return { path: i.path, old: String(i.old_string || '').slice(0, 80) };
     case 'read_url': return { url: i.url };
+    case 'web_search': return { query: String(i.query || '').slice(0, 40) };
     case 'phone': return { action: i.action, app: i.app || '', text: String(i.text || '').slice(0, 60) };
     case 'send_message': return { channel: i.channel, to: i.to || '', text: String(i.text || '').slice(0, 60) };
     case 'start_project': return { type: i.type, install_deps: !!i.install_deps };

@@ -10,12 +10,12 @@ const state = {
 const TOOL_LABELS = {
   list_dir: '查看目录', read_file: '读文件', write_file: '写文件', edit_file: '改代码',
   delete_file: '删除', run_command: '执行命令', start_project: '启动项目', stop_project: '停止项目',
-  search_code: '搜索代码', read_url: '读网页', send_message: '发消息',
+  search_code: '搜索代码', read_url: '读网页', web_search: '联网搜索', send_message: '发消息',
 };
 const TOOL_ICONS = {
   list_dir: '📂', read_file: '📄', write_file: '✍️', edit_file: '✏️',
   delete_file: '🗑️', run_command: '⚙️', start_project: '🚀', stop_project: '⏹️',
-  search_code: '🔍', read_url: '🌐', send_message: '💬',
+  search_code: '🔍', read_url: '🌐', web_search: '🔎', send_message: '💬',
 };
 
 async function api(path, opts) {
@@ -343,6 +343,7 @@ function renderEvent(evt, replay) {
       else if (evt.name === 'list_dir') target = inp.path || '根目录';
       else if (evt.name === 'search_code') target = inp.pattern || '';
       else if (evt.name === 'read_url') target = String(inp.url || '').slice(0, 50);
+      else if (evt.name === 'web_search') target = String(inp.query || '').slice(0, 40);
       else if (evt.name === 'phone') target = String(inp.action || '') + (inp.app ? ' · ' + inp.app : '') + (inp.text ? ' · ' + String(inp.text).slice(0, 20) : '');
       else if (evt.name === 'send_message') target = String(inp.channel || '') + (inp.to ? ' → ' + inp.to : '');
       else if (evt.name === 'start_project') target = (inp.type || 'auto') + (inp.install_deps ? ' +装依赖' : '');

@@ -162,8 +162,21 @@ const TOOL_DEFS = [
         title: { type: 'string', description: 'notify 的标题' },
         to: { type: 'string', description: 'sms 的收件号码' },
         path: { type: 'string', description: 'photo 保存路径或 share 的文件路径' },
+        camera: { type: 'string', enum: ['back', 'front'], description: 'photo 用：back=后置（默认），front=前置' },
       },
       required: ['action'],
+    },
+  },
+  {
+    name: 'web_search',
+    description: '联网搜索（Bing）。查新闻、查资料、找答案用；拿到结果后可以再用 read_url 读具体网页的正文。国内网络直连可用。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: '搜索关键词，中文直接写' },
+        num: { type: 'number', description: '返回条数，默认 8，最多 10' },
+      },
+      required: ['query'],
     },
   },
   {
@@ -312,6 +325,42 @@ function fmtSize(n) {
   return (n / 1024 / 1024).toFixed(1) + 'MB';
 }
 
+// ---------------- 搜索（Bing HTML 解析，纯函数便于单测）----------------
+function parseSearchHtml(html, max) {
+  const out = [];
+  const strip = (s) => String(s || '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&[a-z#0-9]+;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  // 两种布局分别抓，按 URL 去重：
+  // 移动版 <a h="ID=SERP.."><h2>标题</h2></a>（a 包 h2），桌面版 <h2><a h="ID=SERP..">标题</a></h2>。
+  // logo/导航锚点两种布局都不在标题结构里，天然被排除
+  const seen = new Set();
+  const pushFrom = (tag, titleHtml, fromIndex) => {
+    const href = tag.match(/href="([^"]+)"/);
+    if (!href || !/^https?:\/\//i.test(href[1])) return;
+    if (seen.has(href[1])) return;
+    seen.add(href[1]);
+    const tail = html.slice(fromIndex, fromIndex + 3000);
+    const sn = tail.match(/<p[^>]*>([\s\S]*?)<\/p>/);
+    out.push({ title: strip(titleHtml), url: href[1], snippet: strip(sn && sn[1]).slice(0, 200) });
+  };
+  // 布局一：锚点包着标题（移动版）
+  const re1 = /<a([^>]*h="ID=SERP[^"]*"[^>]*)>([\s\S]*?)<\/a>/g;
+  let m;
+  while ((m = re1.exec(html)) && out.length < max) {
+    if (!m[2].includes('<h2')) continue;
+    pushFrom(m[1], m[2].slice(m[2].indexOf('<h2')), re1.lastIndex);
+  }
+  // 布局二：标题包着锚点（桌面版）
+  const re2 = /<h2[^>]*>\s*<a([^>]*h="ID=SERP[^"]*"[^>]*)>([\s\S]*?)<\/a>/g;
+  while ((m = re2.exec(html)) && out.length < max) {
+    pushFrom(m[1], m[2], re2.lastIndex);
+  }
+  return out;
+}
+
 // ---------------- 手机操作（Termux:API）----------------
 function shq(s) {
   return "'" + String(s ?? '').replace(/'/g, "'\\''") + "'";
@@ -338,8 +387,12 @@ function buildPhoneCommand(action, input) {
     case 'sms':
       if (!i.to) return { error: 'sms 需要 to 号码' };
       return { cmd: `termux-sms-send -n ${shq(i.to)} ${shq(i.text || '')}` };
-    case 'photo':
-      return { cmd: i.path ? `termux-camera-photo ${shq(i.path)}` : 'termux-camera-photo "$HOME/storage/shared/DCIM/Lewis-$(date +%s).jpg"' };
+    case 'photo': {
+      // -c 0=后置（默认） -c 1=前置；拍完自动打开给用户看
+      const cam = i.camera === 'front' ? '-c 1' : '-c 0';
+      const p = i.path ? shq(i.path) : '"$HOME/storage/shared/DCIM/Lewis-$(date +%s).jpg"';
+      return { cmd: `termux-camera-photo ${cam} ${p} && (termux-open ${p} 2>/dev/null || true)` };
+    }
     case 'torch': return { cmd: `termux-torch ${i.text === 'off' ? 'off' : 'on'}` };
     case 'share': return { cmd: `termux-share ${shq(i.path || '')}` };
     default: return { error: `不支持的动作：${action}` };
@@ -587,6 +640,32 @@ async function executeTool(name, input, ctx) {
       const brief = output.replace(/\s+/g, ' ').slice(0, 160);
       return { ok: r.exitCode === 0, summary: `${action} 完成${brief ? '：' + brief : ''}`, output: output.slice(0, 4000), data: { action, exitCode: r.exitCode } };
     }
+    case 'web_search': {
+      const q = String(input.query || '').trim();
+      if (!q) return { ok: false, summary: '搜索词不能为空', error: 'empty query', output: '' };
+      const num = Math.min(Math.max(parseInt(input.num, 10) || 8, 1), 10);
+      try {
+        const resp = await fetch('https://cn.bing.com/search?q=' + encodeURIComponent(q) + '&count=' + num, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36',
+            'Accept-Language': 'zh-CN,zh;q=0.9',
+          },
+          signal: AbortSignal.timeout(15000),
+        });
+        const html = await resp.text();
+        if (!resp.ok) return { ok: false, summary: `搜索失败（HTTP ${resp.status}）`, error: 'Bing 不可达，可改用 read_url 直接读网址', output: '' };
+        const results = parseSearchHtml(html, num);
+        if (!results.length) return { ok: false, summary: '没解析出搜索结果', error: 'Bing 页面结构可能变了，可改用 read_url 直接读网址', output: '' };
+        return {
+          ok: true,
+          summary: `找到 ${results.length} 条结果`,
+          output: results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`).join('\n\n'),
+          data: { results },
+        };
+      } catch (e) {
+        return { ok: false, summary: '搜索失败', error: String((e && e.message) || e), output: '' };
+      }
+    }
     case 'send_message': {
       const channel = String(input.channel || '');
       const text = String(input.text || '');
@@ -641,4 +720,4 @@ async function executeTool(name, input, ctx) {
   }
 }
 
-module.exports = { TOOL_DEFS, executeTool, dangerOf, resolveIn, buildPhoneCommand };
+module.exports = { TOOL_DEFS, executeTool, dangerOf, resolveIn, buildPhoneCommand, parseSearchHtml };
