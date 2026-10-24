@@ -158,48 +158,60 @@ async function* streamEndpoint({ url, auth, model, system, messages, tools, maxT
   throw lastErr;
 }
 
+// 离线记忆窗口：主接口刚失败过，接下来 5 分钟内直接走本地模型——
+// 每条消息都白等超时是离线"太慢"的主因，只有断网后第一条付一次探测成本
+let offlineSince = 0;
+const OFFLINE_MEMORY_MS = 5 * 60 * 1000;
+
 // 主入口：走 .env 配置的主模型（默认 DeepSeek，任何 OpenAI 兼容服务商都行）；
 // 主接口出错时，如果 .env 配了 LOCAL_LLM_URL（手机 Termux 里的 ollama 等本地模型），自动降级
 // _primaryUrl: 仅供测试替换主接口地址
 async function* streamLLM({ apiKey, model, system, messages, tools, maxTokens, signal, _primaryUrl }) {
-  // 主接口限时 12 秒：线路不通时快速进入本地降级，不傻等 DNS 超时
-  const primarySignal = signal
-    ? AbortSignal.any([signal, AbortSignal.timeout(12000)])
-    : AbortSignal.timeout(12000);
-  try {
-    yield* streamEndpoint({ url: _primaryUrl || config.llmApiUrl, auth: `Bearer ${apiKey}`, model, system, messages, tools, maxTokens, signal: primarySignal, attempts: 2 });
-  } catch (e) {
-    const localUrl = config.localLlmUrl;
-    // 主接口任何错误（断网/欠费/Key 失效等）都静默降级到本地模型：
-    // 不带工具、用简洁助手提示词——3B 小模型做不了 Agent 任务循环，
-    // 直接回答反而可靠。只有用户主动停止才不降级。
-    if (localUrl && !(signal && signal.aborted)) {
-      const localOpts = {
-        url: localUrl + '/chat/completions', // LOCAL_LLM_URL 是基地址，补 OpenAI 兼容路径
-        auth: null,
-        model: config.localLlmModel,
-        system: OFFLINE_SYSTEM_PROMPT,
-        messages: toPlainHistory(messages), // 清洗成纯文本历史，离线上下文才对应得上
-        tools: [],
-        maxTokens,
-        signal,
-        attempts: 1,
-      };
-      try {
-        yield* streamEndpoint(localOpts);
-        return;
-      } catch (localErr) {
-        // 本地模型服务可能没在跑（Termux 被杀等）：自动拉起 ollama 再试一次
-        if (config.IS_ANDROID) {
-          try { spawn('ollama', ['serve'], { detached: true, stdio: 'ignore' }).unref(); } catch {}
-          await new Promise((r) => setTimeout(r, 5000));
-          yield* streamEndpoint(localOpts);
-          return;
-        }
-        throw localErr;
-      }
+  if (signal && signal.aborted) throw new Error('已停止');
+  const localUrl = config.localLlmUrl;
+  const recentlyOffline = Date.now() - offlineSince < OFFLINE_MEMORY_MS;
+
+  if (!recentlyOffline) {
+    // 主接口限时 5 秒：线路不通时快速进入本地降级，不傻等 DNS 超时
+    const primarySignal = signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(5000)])
+      : AbortSignal.timeout(5000);
+    try {
+      yield* streamEndpoint({ url: _primaryUrl || config.llmApiUrl, auth: `Bearer ${apiKey}`, model, system, messages, tools, maxTokens, signal: primarySignal, attempts: 1 });
+      offlineSince = 0; // 主接口恢复
+      return;
+    } catch (e) {
+      offlineSince = Date.now();
+      if (!localUrl) throw e;
     }
-    throw e;
+  } else if (!localUrl) {
+    throw new Error('主接口不可用且未配置本地模型');
+  }
+
+  // 本地降级（静默、无工具、纯文本历史、紧凑输出）
+  const localOpts = {
+    url: localUrl + '/chat/completions', // LOCAL_LLM_URL 是基地址，补 OpenAI 兼容路径
+    auth: null,
+    model: config.localLlmModel,
+    system: OFFLINE_SYSTEM_PROMPT,
+    messages: toPlainHistory(messages), // 清洗成纯文本历史，离线上下文才对应得上
+    tools: [],
+    maxTokens: Math.min(maxTokens || 8192, 1024),
+    signal,
+    attempts: 1,
+  };
+  try {
+    yield* streamEndpoint(localOpts);
+    return;
+  } catch (localErr) {
+    // 本地模型服务可能没在跑（Termux 被杀等）：自动拉起 ollama 再试一次
+    if (config.IS_ANDROID) {
+      try { spawn('ollama', ['serve'], { detached: true, stdio: 'ignore' }).unref(); } catch {}
+      await new Promise((r) => setTimeout(r, 5000));
+      yield* streamEndpoint(localOpts);
+      return;
+    }
+    throw localErr;
   }
 }
 
@@ -207,20 +219,21 @@ async function* streamLLM({ apiKey, model, system, messages, tools, maxTokens, s
 const OFFLINE_SYSTEM_PROMPT = '你是 Lewis，一个在用户手机上运行的离线中文助手。请直接、准确、简洁地回答用户的问题，用中文。前面对话里提到的内容要记得，回答要连贯对应上下文。';
 
 // 把完整历史清洗成小模型能看懂的纯文本对话：
-// 去掉工具调用语法（小模型没发过工具，看到会懵），操作结果压缩成一句注释
+// 去掉工具调用语法（小模型没发过工具，看到会懵），操作结果压缩成一句注释。
+// 裁剪要狠：最近 8 条 × 800 字——手机 CPU 跑 3B，预填充时间随上下文长度线性涨
 function toPlainHistory(messages) {
   const out = [];
-  for (const m of (messages || []).slice(-12)) {
+  for (const m of (messages || []).slice(-8)) {
     if (m.role === 'user') {
       const parts = [];
       if (typeof m.content === 'string') parts.push(m.content);
       else for (const b of m.content || []) {
-        if (b.type === 'tool_result') parts.push('[操作结果] ' + String(b.content || '').slice(0, 300));
+        if (b.type === 'tool_result') parts.push('[操作结果] ' + String(b.content || '').slice(0, 150));
       }
-      const t = parts.join('\n').slice(0, 2000);
+      const t = parts.join('\n').slice(0, 800);
       if (t.trim()) out.push({ role: 'user', content: t });
     } else if (m.role === 'assistant') {
-      const t = (m.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n').slice(0, 2000);
+      const t = (m.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n').slice(0, 800);
       if (t.trim()) out.push({ role: 'assistant', content: t });
     }
   }
