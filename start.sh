@@ -22,6 +22,15 @@ wake_lock() {
   fi
 }
 
+# 离线兜底：装了 ollama 就把本地模型服务也拉起来（后台常驻）。
+# 之前只有 Agent 服务被开机自启管理，ollama 一直是"死一次就没了"。
+ensure_ollama() {
+  if command -v ollama >/dev/null 2>&1 && ! curl -s -m 1 http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
+    nohup ollama serve >/dev/null 2>&1 &
+    echo "🧠 本地模型服务已拉起（离线兜底就绪）"
+  fi
+}
+
 lan_ip() {
   local ip=""
   ip=$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.*src \([0-9.]*\).*/\1/p' | head -1)
@@ -92,6 +101,7 @@ case "${1:-start}" in
       exit 0
     fi
     wake_lock
+    ensure_ollama
     ensure_token
     nohup node server.js >> "$LOG" 2>&1 &
     echo $! > "$PIDFILE"
@@ -115,6 +125,7 @@ case "${1:-start}" in
     ;;
   start|fg)
     wake_lock
+    ensure_ollama
     if is_up; then
       echo "✅ 服务已经在跑：http://127.0.0.1:$PORT"
     else
