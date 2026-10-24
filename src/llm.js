@@ -1,6 +1,7 @@
 'use strict';
 // DeepSeek API 流式调用（OpenAI 兼容格式），零依赖
 // 把 DeepSeek 的 chunk 翻译成本系统内部的事件格式（与 Agent 循环解耦）
+const config = require('./config');
 const API_URL = 'https://api.deepseek.com/chat/completions';
 
 // ---------- 消息格式转换：内部格式 -> DeepSeek(OpenAI) 格式 ----------
@@ -34,7 +35,8 @@ function convertMessages(system, messages) {
   return msgs;
 }
 
-async function* streamDeepSeek({ apiKey, model, system, messages, tools, maxTokens, signal }) {
+// 通用 OpenAI 兼容流式端点（DeepSeek 与本地 ollama 共用同一套解析）
+async function* streamEndpoint({ url, auth, model, system, messages, tools, maxTokens, signal, attempts }) {
   const body = {
     model,
     messages: convertMessages(system, messages),
@@ -49,13 +51,13 @@ async function* streamDeepSeek({ apiKey, model, system, messages, tools, maxToke
   };
 
   let lastErr;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
     try {
-      const resp = await fetch(API_URL, {
+      const resp = await fetch(url, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          authorization: `Bearer ${apiKey}`,
+          ...(auth ? { authorization: auth } : {}),
         },
         body: JSON.stringify(body),
         signal,
@@ -66,7 +68,7 @@ async function* streamDeepSeek({ apiKey, model, system, messages, tools, maxToke
           const j = await resp.json();
           if (j.error && j.error.message) msg = j.error.message;
         } catch {}
-        throw new Error(`DeepSeek API 错误：${msg}`);
+        throw new Error(`模型接口错误：${msg}`);
       }
       const reader = resp.body.getReader();
       const dec = new TextDecoder();
@@ -142,7 +144,7 @@ async function* streamDeepSeek({ apiKey, model, system, messages, tools, maxToke
     } catch (e) {
       if (signal && signal.aborted) throw e;
       // 网络类错误重试一次；API 业务错误（4xx 等）不重试
-      if (!(e instanceof Error && e.message.startsWith('DeepSeek API 错误'))) {
+      if (!(e instanceof Error && e.message.startsWith('模型接口错误'))) {
         lastErr = e;
         if (attempt === 0) await new Promise((r) => setTimeout(r, 900));
       } else {
@@ -150,7 +152,29 @@ async function* streamDeepSeek({ apiKey, model, system, messages, tools, maxToke
       }
     }
   }
-  throw lastErr || new Error('DeepSeek API 请求失败');
+  lastErr = lastErr || new Error('模型接口请求失败');
+  lastErr.isNetwork = true;
+  throw lastErr;
+}
+
+// 主入口：DeepSeek 优先；断网等网络错误时，如果 .env 配了 LOCAL_LLM_URL
+// （手机 Termux 里的 ollama 等 OpenAI 兼容本地模型），自动降级到本地模型跑
+// _primaryUrl: 仅供测试替换主接口地址
+async function* streamDeepSeek({ apiKey, model, system, messages, tools, maxTokens, signal, _primaryUrl }) {
+  try {
+    yield* streamEndpoint({ url: _primaryUrl || API_URL, auth: `Bearer ${apiKey}`, model, system, messages, tools, maxTokens, signal, attempts: 2 });
+  } catch (e) {
+    const localUrl = config.localLlmUrl;
+    if (e && e.isNetwork && localUrl && !(signal && signal.aborted)) {
+      // 通知用户已切换本地模型（index 99 避开与正式内容块冲突）
+      yield { type: 'content_block_start', index: 99, content_block: { type: 'text', text: '' } };
+      yield { type: 'content_block_delta', index: 99, delta: { type: 'text_delta', text: '\n（连不上 DeepSeek，已切换到手机本地模型，能力会弱一些）\n' } };
+      yield { type: 'content_block_stop', index: 99 };
+      yield* streamEndpoint({ url: localUrl, auth: null, model: config.localLlmModel, system, messages, tools, maxTokens, signal, attempts: 1 });
+      return;
+    }
+    throw e;
+  }
 }
 
 // ---------- 图片理解：用 deepseek-flash 的视觉能力把图片转成文字描述 ----------

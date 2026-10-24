@@ -67,6 +67,9 @@ module.exports = {
   // WECOM_WEBHOOK_URL=企业微信群机器人 webhook；ONEBOT_API_URL=QQ OneBot 机器人（如 NapCat）HTTP API 地址
   get wecomWebhook() { return String(env.WECOM_WEBHOOK_URL || '').trim(); },
   get onebotApi() { return String(env.ONEBOT_API_URL || '').trim().replace(/\/+$/, ''); },
+  // 离线兜底：本地模型（ollama 的 OpenAI 兼容接口）。DeepSeek 断网时自动切换
+  get localLlmUrl() { return String(env.LOCAL_LLM_URL || '').trim().replace(/\/+$/, ''); },
+  get localLlmModel() { return String(env.LOCAL_LLM_MODEL || 'qwen2.5:3b').trim(); },
   // 服务端版本号（从 package.json 读，/api/state 会返回，用来确认手机上跑的是哪一版）
   get version() { try { return require('../package.json').version || '0.0.0'; } catch { return '0.0.0'; } },
   lanIPs,

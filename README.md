@@ -191,6 +191,29 @@ chmod +x ~/.termux/boot/termux-boot.sh
 
 ---
 
+## 离线运行（没有网络也能用）
+
+Agent 的"大脑"默认是云端 DeepSeek，断网时只有演示模式。想真离线，在手机上装一个**本地小模型**，断网时自动切换：
+
+```bash
+pkg install -y ollama
+ollama serve &          # 本地模型服务（常驻后台）
+ollama pull qwen2.5:3b  # 下载约 2GB 模型（首次）
+```
+
+然后编辑 `.env`，去掉这两行的注释：
+
+```
+LOCAL_LLM_URL=http://127.0.0.1:11434/v1
+LOCAL_LLM_MODEL=qwen2.5:3b
+```
+
+重启服务。之后 DeepSeek 连不上时会自动降级到本地模型，界面会提示"已切换到手机本地模型"。
+
+> ⚠️ 本地 3B 小模型的能力明显弱于 DeepSeek：简单问答、记事、闲聊没问题；复杂写码和工具调用不可靠。**有条件联网时，DeepSeek 始终是首选**（降级只在连不上时发生）。
+
+---
+
 ## 常见问题
 
 **Q：start.sh 提示端口被占用？**
