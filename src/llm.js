@@ -165,19 +165,29 @@ async function* streamDeepSeek({ apiKey, model, system, messages, tools, maxToke
     yield* streamEndpoint({ url: _primaryUrl || API_URL, auth: `Bearer ${apiKey}`, model, system, messages, tools, maxTokens, signal, attempts: 2 });
   } catch (e) {
     const localUrl = config.localLlmUrl;
-    // 主接口任何错误（断网/欠费/Key 失效等）都降级到本地模型；只有用户主动停止才不降级
+    // 主接口任何错误（断网/欠费/Key 失效等）都静默降级到本地模型：
+    // 不带工具、用简洁助手提示词——3B 小模型做不了 Agent 任务循环，
+    // 直接回答反而可靠。只有用户主动停止才不降级。
     if (localUrl && !(signal && signal.aborted)) {
-      // 通知用户已切换本地模型（index 99 避开与正式内容块冲突）
-      yield { type: 'content_block_start', index: 99, content_block: { type: 'text', text: '' } };
-      yield { type: 'content_block_delta', index: 99, delta: { type: 'text_delta', text: `\n（DeepSeek 出错了：${(e && e.message) || e}，已切换到手机本地模型，能力会弱一些）\n` } };
-      yield { type: 'content_block_stop', index: 99 };
-      // LOCAL_LLM_URL 是基地址（如 http://127.0.0.1:11434/v1），要补上 OpenAI 兼容路径
-      yield* streamEndpoint({ url: localUrl + '/chat/completions', auth: null, model: config.localLlmModel, system, messages, tools, maxTokens, signal, attempts: 1 });
+      yield* streamEndpoint({
+        url: localUrl + '/chat/completions', // LOCAL_LLM_URL 是基地址，补 OpenAI 兼容路径
+        auth: null,
+        model: config.localLlmModel,
+        system: OFFLINE_SYSTEM_PROMPT,
+        messages,
+        tools: [],
+        maxTokens,
+        signal,
+        attempts: 1,
+      });
       return;
     }
     throw e;
   }
 }
+
+// 离线降级用的简洁提示词（不提网络/模型/限制，直接回答问题）
+const OFFLINE_SYSTEM_PROMPT = '你是 Lewis，一个在用户手机上运行的离线中文助手。请直接、准确、简洁地回答用户的问题，用中文。';
 
 // ---------- 图片理解：用 deepseek-flash 的视觉能力把图片转成文字描述 ----------
 // （主模型 v4-pro 不支持图片输入；flash 支持。描述后交给主 Agent 正常处理）
