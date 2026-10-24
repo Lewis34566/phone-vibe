@@ -153,7 +153,7 @@ const TOOL_DEFS = [
       properties: {
         action: {
           type: 'string',
-          enum: ['open_url', 'open_app', 'clipboard_get', 'clipboard_set', 'notify', 'toast', 'vibrate', 'tts', 'battery', 'wifi', 'sms', 'photo', 'torch', 'share'],
+          enum: ['open_url', 'open_app', 'clipboard_get', 'clipboard_set', 'notify', 'toast', 'vibrate', 'tts', 'battery', 'wifi', 'sms', 'photo', 'torch', 'share', 'remind'],
           description: '要执行的动作',
         },
         url: { type: 'string', description: 'open_url 用' },
@@ -163,6 +163,7 @@ const TOOL_DEFS = [
         to: { type: 'string', description: 'sms 的收件号码' },
         path: { type: 'string', description: 'photo 保存路径或 share 的文件路径' },
         camera: { type: 'string', enum: ['back', 'front'], description: 'photo 用：back=后置（默认），front=前置' },
+        minutes: { type: 'number', description: 'remind 用：多少分钟后提醒（1-720）' },
       },
       required: ['action'],
     },
@@ -392,6 +393,13 @@ function buildPhoneCommand(action, input) {
       const cam = i.camera === 'front' ? '-c 1' : '-c 0';
       const p = i.path ? shq(i.path) : '"$HOME/storage/shared/DCIM/Lewis-$(date +%s).jpg"';
       return { cmd: `termux-camera-photo ${cam} ${p} && (termux-open ${p} 2>/dev/null || true)` };
+    }
+    case 'remind': {
+      // 定时提醒：后台 sleep 后发通知（带震动）——手机通知镜像到手表后，手环会跟着震
+      const mins = Math.min(Math.max(parseInt(i.minutes, 10) || 5, 1), 720);
+      const title = i.title || 'Lewis 提醒';
+      const text = i.text || '';
+      return { cmd: `nohup bash -c 'sleep ${mins * 60}; termux-notification --title ${shq(title)} --content ${shq(text)} --vibrate 1000,500,1000' >/dev/null 2>&1 & echo 已设置 ${mins} 分钟后提醒` };
     }
     case 'torch': return { cmd: `termux-torch ${i.text === 'off' ? 'off' : 'on'}` };
     case 'share': return { cmd: `termux-share ${shq(i.path || '')}` };
