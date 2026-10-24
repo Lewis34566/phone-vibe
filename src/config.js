@@ -49,10 +49,18 @@ function lanIPs() {
 module.exports = {
   APP_DIR,
   IS_ANDROID,
-  // Key 兼容三种写法：DEEPSEEK_API_KEY / API_KEY / 旧版 ANTHROPIC_API_KEY
-  get apiKey() { return (env.DEEPSEEK_API_KEY || env.API_KEY || env.ANTHROPIC_API_KEY || '').trim(); },
+  // Key 通用字段优先，向后兼容各旧写法
+  get apiKey() { return (env.LLM_API_KEY || env.DEEPSEEK_API_KEY || env.OPENAI_API_KEY || env.API_KEY || env.ANTHROPIC_API_KEY || '').trim(); },
   get configured() { return this.apiKey.length > 10; },
   get model() { return env.MODEL || 'deepseek-v4-pro'; },
+  // 主模型接口地址（OpenAI 兼容即可，任何 AI 公司都行）：
+  // DeepSeek 默认；OpenAI=https://api.openai.com/v1/chat/completions；
+  // 通义千问=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions；
+  // 智谱=https://open.bigmodel.cn/api/paas/v4/chat/completions；
+  // Kimi=https://api.moonshot.cn/v1/chat/completions
+  get llmApiUrl() { return String(env.LLM_API_URL || 'https://api.deepseek.com/chat/completions').trim(); },
+  // 图片理解模型（走主接口同家服务商，各家视觉模型名不同）
+  get visionModel() { return String(env.VISION_MODEL || 'deepseek-flash').trim(); },
   get port() { const p = parseInt(env.PORT || '8787', 10); return Number.isFinite(p) ? p : 8787; },
   get autoOpen() { return env.AUTO_OPEN !== '0' && env.NO_AUTO_OPEN !== '1'; },
   get projectsDir() { return projectsDir(); },
@@ -74,21 +82,21 @@ module.exports = {
   get version() { try { return require('../package.json').version || '0.0.0'; } catch { return '0.0.0'; } },
   lanIPs,
   reload,
-  // 把 API Key 写入 .env（统一写成 DEEPSEEK_API_KEY，兼容替换旧字段名，原子写）
+  // 把 API Key 写入 .env（统一写成通用字段 LLM_API_KEY，兼容替换旧字段名，原子写）
   saveApiKey(key) {
     const p = path.join(APP_DIR, '.env');
     const lines = fs.existsSync(p) ? fs.readFileSync(p, 'utf8').split(/\r?\n/) : [];
     let done = false;
     for (let i = 0; i < lines.length; i++) {
-      if (/^\s*(DEEPSEEK_API_KEY|API_KEY|ANTHROPIC_API_KEY)\s*=/.test(lines[i])) {
-        lines[i] = `DEEPSEEK_API_KEY=${key.trim()}`;
+      if (/^\s*(LLM_API_KEY|DEEPSEEK_API_KEY|OPENAI_API_KEY|API_KEY|ANTHROPIC_API_KEY)\s*=/.test(lines[i])) {
+        lines[i] = `LLM_API_KEY=${key.trim()}`;
         done = true;
         break;
       }
     }
     if (!done) {
       if (lines.length && lines[lines.length - 1].trim() !== '') lines.push('');
-      lines.push(`DEEPSEEK_API_KEY=${key.trim()}`);
+      lines.push(`LLM_API_KEY=${key.trim()}`);
     }
     const tmp = p + '.tmp';
     fs.writeFileSync(tmp, lines.join('\n') + '\n');

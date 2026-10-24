@@ -2,7 +2,6 @@
 // DeepSeek API 流式调用（OpenAI 兼容格式），零依赖
 // 把 DeepSeek 的 chunk 翻译成本系统内部的事件格式（与 Agent 循环解耦）
 const config = require('./config');
-const API_URL = 'https://api.deepseek.com/chat/completions';
 
 // ---------- 消息格式转换：内部格式 -> DeepSeek(OpenAI) 格式 ----------
 function convertMessages(system, messages) {
@@ -157,12 +156,12 @@ async function* streamEndpoint({ url, auth, model, system, messages, tools, maxT
   throw lastErr;
 }
 
-// 主入口：DeepSeek 优先；断网等网络错误时，如果 .env 配了 LOCAL_LLM_URL
-// （手机 Termux 里的 ollama 等 OpenAI 兼容本地模型），自动降级到本地模型跑
+// 主入口：走 .env 配置的主模型（默认 DeepSeek，任何 OpenAI 兼容服务商都行）；
+// 主接口出错时，如果 .env 配了 LOCAL_LLM_URL（手机 Termux 里的 ollama 等本地模型），自动降级
 // _primaryUrl: 仅供测试替换主接口地址
-async function* streamDeepSeek({ apiKey, model, system, messages, tools, maxTokens, signal, _primaryUrl }) {
+async function* streamLLM({ apiKey, model, system, messages, tools, maxTokens, signal, _primaryUrl }) {
   try {
-    yield* streamEndpoint({ url: _primaryUrl || API_URL, auth: `Bearer ${apiKey}`, model, system, messages, tools, maxTokens, signal, attempts: 2 });
+    yield* streamEndpoint({ url: _primaryUrl || config.llmApiUrl, auth: `Bearer ${apiKey}`, model, system, messages, tools, maxTokens, signal, attempts: 2 });
   } catch (e) {
     const localUrl = config.localLlmUrl;
     // 主接口任何错误（断网/欠费/Key 失效等）都静默降级到本地模型：
@@ -192,14 +191,14 @@ const OFFLINE_SYSTEM_PROMPT = '你是 Lewis，一个在用户手机上运行的�
 // ---------- 图片理解：用 deepseek-flash 的视觉能力把图片转成文字描述 ----------
 // （主模型 v4-pro 不支持图片输入；flash 支持。描述后交给主 Agent 正常处理）
 async function describeImage({ apiKey, imageUrl, signal }) {
-  const resp = await fetch(API_URL, {
+  const resp = await fetch(config.llmApiUrl, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: 'deepseek-flash',
+      model: config.visionModel,
       messages: [{
         role: 'user',
         content: [
@@ -390,4 +389,4 @@ async function* mockStream(messages) {
   yield { type: 'message_stop' };
 }
 
-module.exports = { streamDeepSeek, mockStream, describeImage };
+module.exports = { streamLLM, mockStream, describeImage };

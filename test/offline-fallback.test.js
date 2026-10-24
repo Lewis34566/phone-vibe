@@ -21,10 +21,10 @@ fake.listen(0, '127.0.0.1', async () => {
   const port = fake.address().port;
   process.env.LOCAL_LLM_URL = `http://127.0.0.1:${port}/v1`;
   process.env.LOCAL_LLM_MODEL = 'test-model';
-  const { streamDeepSeek } = require('../src/llm.js'); // 在设置 env 之后才加载 config
+  const { streamLLM } = require('../src/llm.js'); // 在设置 env 之后才加载 config
 
   const events = [];
-  const gen = streamDeepSeek({
+  const gen = streamLLM({
     apiKey: 'x', model: 'm', system: '', messages: [{ role: 'user', content: 'hi' }],
     tools: [{ name: 'write_file', description: 'x', input_schema: { type: 'object' } }],
     signal: new AbortController().signal,

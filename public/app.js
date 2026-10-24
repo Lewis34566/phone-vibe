@@ -720,6 +720,8 @@ async function openSettings() {
   showSheet(`<div class="sheet-title">⚙️ 设置 <button class="sheet-close" id="sheetClose">✕</button></div>
     <div class="set-group"><div class="set-label">用哪个模型</div>
       <div class="chips">${modelBtn('deepseek-v4-pro', 'V4 Pro · 更聪明')}${modelBtn('deepseek-flash', 'Flash · 更快更省')}</div></div>
+    <div class="set-group"><div class="set-label">自定义模型名（其它 AI 公司的模型填这里；接口地址要配套改 .env 的 LLM_API_URL）</div>
+      <div class="newproj"><input id="setModelInput" placeholder="如 gpt-4o / qwen-plus / glm-4"><button id="setModelSave">保存</button></div></div>
     <div class="set-group"><div class="set-label">语音</div>
       <button class="chip${tts ? ' on' : ''}" id="setTts">${tts ? '🔊 朗读回复：开' : '🔇 朗读回复：关'}</button></div>
     <div class="set-group"><div class="set-label">做完自动打开预览</div>
@@ -736,6 +738,16 @@ async function openSettings() {
       toast('已切换模型');
     } catch (e) { toast(e.message); }
   }));
+  $('#setModelSave').addEventListener('click', async () => {
+    const m = $('#setModelInput').value.trim();
+    if (!m) return toast('先输入模型名');
+    if (!/^[a-zA-Z0-9._-]{2,40}$/.test(m)) return toast('模型名格式不对（字母数字.-_）');
+    try {
+      await api('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: m }) });
+      hideSheet();
+      toast('已切换模型：' + m);
+    } catch (e) { toast(e.message); }
+  });
   $('#setTts').addEventListener('click', () => {
     const now = localStorage.getItem('pv:tts') === '1';
     localStorage.setItem('pv:tts', now ? '0' : '1');

@@ -191,6 +191,31 @@ chmod +x ~/.termux/boot/termux-boot.sh
 
 ---
 
+## 换其它 AI 公司（不限于 DeepSeek）
+
+主模型走 OpenAI 兼容接口，**任何一家服务商都能用**。编辑 `.env` 改两行：
+
+| 服务商 | LLM_API_URL | MODEL 示例 |
+|---|---|---|
+| DeepSeek（默认，国内直连） | https://api.deepseek.com/chat/completions | deepseek-v4-pro |
+| OpenAI | https://api.openai.com/v1/chat/completions | gpt-4o |
+| 通义千问（阿里） | https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions | qwen-plus |
+| 智谱 GLM | https://open.bigmodel.cn/api/paas/v4/chat/completions | glm-4 |
+| Kimi（月之暗面） | https://api.moonshot.cn/v1/chat/completions | kimi-k2 |
+| 本地 ollama 当主模型 | http://127.0.0.1:11434/v1/chat/completions | qwen2.5:3b |
+
+```
+LLM_API_KEY=你的Key
+LLM_API_URL=https://api.openai.com/v1/chat/completions
+MODEL=gpt-4o
+```
+
+重启服务生效。界面顶部横幅粘贴的 Key 会统一存成 `LLM_API_KEY`。拍照看图用的视觉模型名可在 `VISION_MODEL` 里换（各家不同）。
+
+> 注意：换服务商后，工具调用格式各家实现有差异，DeepSeek 与千问/智谱实测兼容良好；海外服务商（OpenAI）需要网络能直连。
+
+---
+
 ## 离线运行（没有网络也能用）
 
 Agent 的"大脑"默认是云端 DeepSeek，断网时只有演示模式。想真离线，在手机上装一个**本地小模型**，断网时自动切换：
