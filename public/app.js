@@ -11,11 +11,13 @@ const TOOL_LABELS = {
   list_dir: '查看目录', read_file: '读文件', write_file: '写文件', edit_file: '改代码',
   delete_file: '删除', run_command: '执行命令', start_project: '启动项目', stop_project: '停止项目',
   search_code: '搜索代码', read_url: '读网页', web_search: '联网搜索', send_message: '发消息',
+  memory: '记忆',
 };
 const TOOL_ICONS = {
   list_dir: '📂', read_file: '📄', write_file: '✍️', edit_file: '✏️',
   delete_file: '🗑️', run_command: '⚙️', start_project: '🚀', stop_project: '⏹️',
   search_code: '🔍', read_url: '🌐', web_search: '🔎', send_message: '💬',
+  memory: '🧠',
 };
 
 async function api(path, opts) {
@@ -356,6 +358,7 @@ function renderEvent(evt, replay) {
       else if (evt.name === 'web_search') target = String(inp.query || '').slice(0, 40);
       else if (evt.name === 'phone') target = String(inp.action || '') + (inp.app ? ' · ' + inp.app : '') + (inp.text ? ' · ' + String(inp.text).slice(0, 20) : '');
       else if (evt.name === 'send_message') target = String(inp.channel || '') + (inp.to ? ' → ' + inp.to : '');
+      else if (evt.name === 'memory') target = String(inp.action || '') + (inp.text ? ' · ' + String(inp.text).slice(0, 20) : '');
       else if (evt.name === 'start_project') target = (inp.type || 'auto') + (inp.install_deps ? ' +装依赖' : '');
       step.innerHTML = `<div class="step-head">
         <span class="step-ico">${TOOL_ICONS[evt.name] || '🔧'}</span>
@@ -515,8 +518,10 @@ async function send(text) {
   if (!text || state.running) return;
   $('#input').value = '';
   const imgs = pendingImages.slice(); // 先捕获，body 构建时用；预览条现在清掉
+  const fils = pendingFiles.slice();
   pendingImages.length = 0;
-  renderImgRow();
+  pendingFiles.length = 0;
+  renderAttachRow();
   autoGrow();
   if (!state.current) state.current = '新项目';
   updatePill();
@@ -539,6 +544,7 @@ async function send(text) {
         sessionId: state.session ? state.session.id : null,
         message: text,
         images: imgs,
+        files: fils.map((f) => ({ name: f.name, dataUrl: f.dataUrl })),
       }),
     });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -644,13 +650,14 @@ if (micBtn) {
   });
 }
 
-// ---------- 拍照/传图 ----------
+// ---------- 拍照/传图/传文件 ----------
 const pendingImages = [];
-function renderImgRow() {
+const pendingFiles = [];
+function renderAttachRow() {
   const row = $('#imgRow');
   if (!row) return;
   row.innerHTML = '';
-  if (!pendingImages.length) { row.classList.add('hidden'); return; }
+  if (!pendingImages.length && !pendingFiles.length) { row.classList.add('hidden'); return; }
   row.classList.remove('hidden');
   pendingImages.forEach((url, i) => {
     const c = document.createElement('div');
@@ -660,8 +667,18 @@ function renderImgRow() {
     const x = document.createElement('button');
     x.textContent = '✕';
     x.title = '移除';
-    x.addEventListener('click', () => { pendingImages.splice(i, 1); renderImgRow(); });
+    x.addEventListener('click', () => { pendingImages.splice(i, 1); renderAttachRow(); });
     c.appendChild(im); c.appendChild(x);
+    row.appendChild(c);
+  });
+  pendingFiles.forEach((f, i) => {
+    const c = document.createElement('div');
+    c.className = 'file-chip';
+    c.textContent = '📄 ' + f.name;
+    const x = document.createElement('button');
+    x.textContent = '✕';
+    x.addEventListener('click', () => { pendingFiles.splice(i, 1); renderAttachRow(); });
+    c.appendChild(x);
     row.appendChild(c);
   });
 }
@@ -695,7 +712,7 @@ function pickImage(capture) {
       const url = await compressImage(f);
       if (url.length > 5 * 1024 * 1024) return toast('图片太大，换一张试试');
       pendingImages.push(url);
-      renderImgRow();
+      renderAttachRow();
       toast('已添加，发送时一起发给 Lewis');
     } catch { toast('图片处理失败'); }
   });
@@ -709,6 +726,25 @@ if (camBtn) camBtn.addEventListener('click', () => {
   $('#sheetClose').addEventListener('click', hideSheet);
   $('#camTake').addEventListener('click', () => { hideSheet(); pickImage(true); });
   $('#camPick').addEventListener('click', () => { hideSheet(); pickImage(false); });
+});
+const attachBtn = $('#attach');
+if (attachBtn) attachBtn.addEventListener('click', () => {
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.addEventListener('change', async () => {
+    const f = inp.files && inp.files[0];
+    if (!f) return;
+    if (pendingFiles.length >= 5) return toast('最多 5 个文件');
+    if (f.size > 8 * 1024 * 1024) return toast('文件太大（限 8MB）');
+    const reader = new FileReader();
+    reader.onload = () => {
+      pendingFiles.push({ name: f.name, dataUrl: reader.result });
+      renderAttachRow();
+      toast('已添加：' + f.name);
+    };
+    reader.readAsDataURL(f);
+  });
+  inp.click();
 });
 
 // ---------- 设置 ----------

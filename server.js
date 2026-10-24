@@ -142,6 +142,25 @@ async function handleChat(req, res) {
   }
 
   const project = await projects.ensureProject(body.project || '新项目');
+  // 附带文件：保存到项目 uploads/ 目录，清单拼进消息交给 Agent 用 read_file 分析
+  const savedFiles = [];
+  const files = Array.isArray(body.files) ? body.files.slice(0, 5) : [];
+  if (files.length) {
+    const upDir = path.join(projects.projectPath(project), 'uploads');
+    try { fs.mkdirSync(upDir, { recursive: true }); } catch {}
+    for (const f of files) {
+      const name = String((f && f.name) || '').replace(/[\\/:*?"<>|]/g, '_').slice(0, 80);
+      const m = String((f && f.dataUrl) || '').match(/^data:([^;]+);base64,([\s\S]+)$/);
+      if (!name || !m || m[2].length > 10 * 1024 * 1024) continue;
+      try {
+        fs.writeFileSync(path.join(upDir, name), Buffer.from(m[2], 'base64'));
+        savedFiles.push('uploads/' + name);
+      } catch {}
+    }
+  }
+  const agentMessage = message + (savedFiles.length
+    ? '\n\n[用户上传了文件，先用 read_file 读取并分析它们]\n' + savedFiles.map((f) => '- ' + f).join('\n')
+    : '');
   let session = body.sessionId ? store.loadSession(body.sessionId) : null;
   if (!session) {
     session = {
@@ -197,7 +216,7 @@ async function handleChat(req, res) {
 
   try {
     await runAgent({
-      session, project, message, images,
+      session, project, message: agentMessage, images,
       apiKey: config.apiKey, model: config.model,
       controller, emit, approve,
     });

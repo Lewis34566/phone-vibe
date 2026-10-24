@@ -20,7 +20,8 @@ function convertMessages(system, messages) {
         }
       }
     } else if (m.role === 'assistant') {
-      const blocks = m.content || [];
+      // 兼容字符串内容（离线降级的历史清洗后是纯文本）
+      const blocks = Array.isArray(m.content) ? m.content : [{ type: 'text', text: String(m.content || '') }];
       const text = blocks.filter((b) => b.type === 'text').map((b) => b.text).join('\n') || null;
       const toolCalls = blocks
         .filter((b) => b.type === 'tool_use')
@@ -178,7 +179,7 @@ async function* streamLLM({ apiKey, model, system, messages, tools, maxTokens, s
         auth: null,
         model: config.localLlmModel,
         system: OFFLINE_SYSTEM_PROMPT,
-        messages,
+        messages: toPlainHistory(messages), // 清洗成纯文本历史，离线上下文才对应得上
         tools: [],
         maxTokens,
         signal,
@@ -203,7 +204,28 @@ async function* streamLLM({ apiKey, model, system, messages, tools, maxTokens, s
 }
 
 // 离线降级用的简洁提示词（不提网络/模型/限制，直接回答问题）
-const OFFLINE_SYSTEM_PROMPT = '你是 Lewis，一个在用户手机上运行的离线中文助手。请直接、准确、简洁地回答用户的问题，用中文。';
+const OFFLINE_SYSTEM_PROMPT = '你是 Lewis，一个在用户手机上运行的离线中文助手。请直接、准确、简洁地回答用户的问题，用中文。前面对话里提到的内容要记得，回答要连贯对应上下文。';
+
+// 把完整历史清洗成小模型能看懂的纯文本对话：
+// 去掉工具调用语法（小模型没发过工具，看到会懵），操作结果压缩成一句注释
+function toPlainHistory(messages) {
+  const out = [];
+  for (const m of (messages || []).slice(-12)) {
+    if (m.role === 'user') {
+      const parts = [];
+      if (typeof m.content === 'string') parts.push(m.content);
+      else for (const b of m.content || []) {
+        if (b.type === 'tool_result') parts.push('[操作结果] ' + String(b.content || '').slice(0, 300));
+      }
+      const t = parts.join('\n').slice(0, 2000);
+      if (t.trim()) out.push({ role: 'user', content: t });
+    } else if (m.role === 'assistant') {
+      const t = (m.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n').slice(0, 2000);
+      if (t.trim()) out.push({ role: 'assistant', content: t });
+    }
+  }
+  return out;
+}
 
 // ---------- 图片理解：用 deepseek-flash 的视觉能力把图片转成文字描述 ----------
 // （主模型 v4-pro 不支持图片输入；flash 支持。描述后交给主 Agent 正常处理）
@@ -406,4 +428,4 @@ async function* mockStream(messages) {
   yield { type: 'message_stop' };
 }
 
-module.exports = { streamLLM, mockStream, describeImage };
+module.exports = { streamLLM, mockStream, describeImage, toPlainHistory };

@@ -1,6 +1,7 @@
 'use strict';
 const config = require('./config');
 const projects = require('./projects');
+const memory = require('./memory');
 const { streamLLM, mockStream, describeImage } = require('./llm');
 const { TOOL_DEFS, executeTool } = require('./tools');
 const { spawn } = require('child_process');
@@ -31,6 +32,9 @@ const SYSTEM_PROMPT = `你是 Lewis，一位经验丰富的全栈工程师，运
 
 ## 技术约束
 - 用户可能附带图片：图片已经由视觉模型转成详细文字描述（以「[用户附带图片…的详细描述]」形式出现在消息里），把它当作用户提供的信息来理解和使用；回复时不要说"我看不到图"。
+- 用户消息里可能出现 [长期记忆] 段落：这是跨会话记住的关于用户的信息（身份、偏好、约定），务必遵守和利用。
+- 对话中用户透露了重要信息（身份、学习/工作、偏好、约定、重要事实）时，主动用 memory 工具 add 记下来，一句话一条，别记琐碎闲聊。
+- 用户上传的文件会出现在项目 uploads/ 目录：用 read_file 读（docx/pptx/xlsx/epub/图片/PDF 都会自动解析成文字）。
 - 单个文件控制在 1000 行以内（写紧凑但可读）；大应用宁可拆成 index.html + 单独 js/css 文件，避免一次输出太长被截断。
 - 优先纯静态单页（HTML/CSS/JS），只有需求确实需要后端（文件存储、定时任务、调用外部接口）才用 Node。
 - Node 项目尽量零依赖（用内置模块），必须装第三方包才 npm install（会弹窗让用户确认）。
@@ -89,11 +93,13 @@ async function runAgent({ session, project, message, apiKey, model, controller, 
   };
 
   const state = { send: emit, approve, signal };
-  const ctx = { projectDir: projects.projectPath(project), projectName: project, state };
+  const ctx = { projectDir: projects.projectPath(project), projectName: project, state, apiKey };
 
   const messages = (session.messages || []).slice();
+  // 长期记忆注入到用户消息里（不放系统提示词——保持系统+工具前缀字节不变，缓存照常命中）
+  const memText = memory.injectText();
   // 图片 → 先用 deepseek-flash 视觉模型转成详细文字描述（主模型 v4-pro 不支持看图）
-  let userContent = message;
+  let userContent = memText ? `[长期记忆（跨会话记住的关于用户的信息，回答时注意遵守和利用）]\n${memText}\n[/长期记忆]\n\n${message}` : message;
   if (images && images.length && !config.isMock) {
     emit({ type: 'text', delta: '📷 正在识别图片…\n' });
     for (let i = 0; i < Math.min(images.length, 3); i++) {

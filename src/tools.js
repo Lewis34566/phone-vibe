@@ -5,6 +5,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const projects = require('./projects');
 const config = require('./config');
+const { describeImage } = require('./llm');
 
 // ---------------- 工具定义（给大模型的 schema）----------------
 const TOOL_DEFS = [
@@ -178,6 +179,18 @@ const TOOL_DEFS = [
         num: { type: 'number', description: '返回条数，默认 8，最多 10' },
       },
       required: ['query'],
+    },
+  },
+  {
+    name: 'memory',
+    description: '长期记忆：跨会话记住用户的重要信息（身份、偏好、约定、重要事实）。add=记一条；list=看全部；clear=清空。发现用户说到值得记住的事就主动 add。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['add', 'list', 'clear'] },
+        text: { type: 'string', description: 'add 用：要记住的内容，一句话说清' },
+      },
+      required: ['action'],
     },
   },
   {
@@ -362,6 +375,22 @@ function parseSearchHtml(html, max) {
   return out;
 }
 
+// ---------------- Office/电子书文字抽取（docx/pptx/xlsx/epub 都是 zip 包）----------------
+async function extractOfficeText(p, ext, cwd, signal) {
+  let inner = '';
+  if (ext === '.docx') inner = 'word/document.xml';
+  else if (ext === '.pptx') inner = 'ppt/slides/slide*.xml';
+  else if (ext === '.xlsx') inner = 'xl/sharedStrings.xml';
+  else if (ext === '.epub') inner = '*.xhtml OEBPS/*.xhtml OPS/*.xhtml';
+  const strip = "sed -E 's/<[^>]+>//g; s/&amp;/\\&/g; s/&lt;/</g; s/&gt;/>/g; s/&quot;/\"/g; s/&#[0-9]+;/ /g; s/&[a-z]+;/ /g' | tr -s ' \\n' ' \\n' | head -c 20000";
+  const cmd = `unzip -p ${shq(p)} ${inner} 2>/dev/null | ${strip}`;
+  const r = await runProcess('bash', ['-c', cmd], { cwd, timeoutMs: 30000, signal });
+  const out = (r.output || '').trim();
+  if (!out) return { ok: false, summary: '解析失败', error: `无法从 ${ext} 抽取文字（手机需已装 unzip：pkg install unzip）`, output: '' };
+  const note = ext === '.xlsx' ? '[Excel 单元格文字内容（不含行列位置）]\n' : '';
+  return { ok: true, output: note + out };
+}
+
 // ---------------- 手机操作（Termux:API）----------------
 function shq(s) {
   return "'" + String(s ?? '').replace(/'/g, "'\\''") + "'";
@@ -433,6 +462,34 @@ async function executeTool(name, input, ctx) {
     }
     case 'read_file': {
       const p = resolveIn(projectDir, input.path);
+      const st = await fs.promises.stat(p);
+      if (st.size > 30 * 1024 * 1024) return { ok: false, summary: '文件超过 30MB，读不了', error: 'file too large', output: '' };
+      const ext = path.extname(p).toLowerCase();
+      // 图片 → 视觉模型识别
+      if (['.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(ext)) {
+        const mime = ext === '.jpg' ? 'jpeg' : ext.slice(1);
+        const dataUrl = `data:image/${mime};base64,` + (await fs.promises.readFile(p)).toString('base64');
+        try {
+          const desc = await describeImage({ apiKey: ctx.apiKey, imageUrl: dataUrl, signal: state.signal });
+          return { ok: true, summary: `视觉模型已识别图片 ${input.path}`, output: desc, data: { path: input.path, vision: true } };
+        } catch (e) {
+          return { ok: false, summary: '图片识别失败', error: String((e && e.message) || e), output: '' };
+        }
+      }
+      // Office/电子书（都是 zip 包）→ 解包抽取文字
+      if (['.docx', '.pptx', '.xlsx', '.epub'].includes(ext)) {
+        const r = await extractOfficeText(p, ext, projectDir, state.signal);
+        if (!r.ok) return r;
+        return { ok: true, summary: `解析 ${path.basename(p)}（${fmtSize(st.size)}）`, output: r.output, data: { path: input.path, kind: ext.slice(1) } };
+      }
+      // PDF → pdftotext（需 pkg install poppler）
+      if (ext === '.pdf') {
+        const r = await runProcess('bash', ['-c', `pdftotext ${shq(p)} - 2>/dev/null | head -c 30000`], { cwd: projectDir, timeoutMs: 30000, signal: state.signal });
+        if (r.exitCode === 0 && (r.output || '').trim()) {
+          return { ok: true, summary: `解析 ${path.basename(p)}（${fmtSize(st.size)}）`, output: r.output, data: { path: input.path, kind: 'pdf' } };
+        }
+        return { ok: false, summary: 'PDF 解析失败', error: '需要安装 poppler：pkg install poppler，然后重试', output: (r.output || '').slice(0, 500) };
+      }
       const buf = await fs.promises.readFile(p);
       let text;
       if (buf.includes(0)) {
@@ -647,6 +704,19 @@ async function executeTool(name, input, ctx) {
       }
       const brief = output.replace(/\s+/g, ' ').slice(0, 160);
       return { ok: r.exitCode === 0, summary: `${action} 完成${brief ? '：' + brief : ''}`, output: output.slice(0, 4000), data: { action, exitCode: r.exitCode } };
+    }
+    case 'memory': {
+      const mem = require('./memory');
+      const action = String(input.action || 'list');
+      if (action === 'add') {
+        const t = String(input.text || '').trim();
+        if (!t) return { ok: false, summary: '要记住的内容不能为空', error: 'empty text', output: '' };
+        const n = mem.add(t);
+        return { ok: true, summary: `已记住（现有 ${n} 条记忆）`, output: '', data: { count: n } };
+      }
+      if (action === 'clear') { mem.clear(); return { ok: true, summary: '记忆已清空', output: '' }; }
+      const items = mem.list();
+      return { ok: true, summary: `共 ${items.length} 条记忆`, output: items.map((i) => '- ' + i.text).join('\n') || '（还没有记忆）', data: { count: items.length } };
     }
     case 'web_search': {
       const q = String(input.query || '').trim();
