@@ -198,7 +198,9 @@ chmod +x ~/.termux/boot/termux-boot.sh
 | 服务商 | LLM_API_URL | MODEL 示例 |
 |---|---|---|
 | DeepSeek（默认，国内直连） | https://api.deepseek.com/chat/completions | deepseek-v4-pro |
-| OpenAI | https://api.openai.com/v1/chat/completions | gpt-4o |
+| OpenAI（GPT） | https://api.openai.com/v1/chat/completions | gpt-4o |
+| Claude（Anthropic 官方 OpenAI 兼容接口） | https://api.anthropic.com/v1/chat/completions | claude-opus-5-5 |
+| Gemini（Google 官方 OpenAI 兼容接口） | https://generativelanguage.googleapis.com/v1beta/openai/chat/completions | gemini-2.5-pro |
 | 通义千问（阿里） | https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions | qwen-plus |
 | 智谱 GLM | https://open.bigmodel.cn/api/paas/v4/chat/completions | glm-4 |
 | Kimi（月之暗面） | https://api.moonshot.cn/v1/chat/completions | kimi-k2 |
@@ -212,7 +214,7 @@ MODEL=gpt-4o
 
 重启服务生效。界面顶部横幅粘贴的 Key 会统一存成 `LLM_API_KEY`。拍照看图用的视觉模型名可在 `VISION_MODEL` 里换（各家不同）。
 
-> 注意：换服务商后，工具调用格式各家实现有差异，DeepSeek 与千问/智谱实测兼容良好；海外服务商（OpenAI）需要网络能直连。
+> 注意：换服务商后，工具调用格式各家实现有差异，DeepSeek 与千问/智谱实测兼容良好；**海外服务商（OpenAI/Claude/Gemini）国内网络无法直连，需要在手机上配代理**（Termux 里设 `export https_proxy=...` 后启动，或走电脑隧道）。Claude 用官方 OpenAI 兼容接口（模型名如 claude-opus-5-5），Gemini 用 `v1beta/openai/` 兼容接口。
 
 ---
 
