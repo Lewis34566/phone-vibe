@@ -3,8 +3,9 @@
 const http = require('http');
 const assert = require('assert');
 
-// 假本地模型：返回一段 SSE 流
+// 假本地模型：只认 /v1/chat/completions 路径（和真 ollama 一样，其他路径 404）
 const fake = http.createServer((req, res) => {
+  if (req.url !== '/v1/chat/completions') { res.writeHead(404); res.end(); return; }
   res.writeHead(200, { 'content-type': 'text/event-stream' });
   res.write('data: {"choices":[{"delta":{"content":"本地模型回复"}}]}\n\n');
   res.end('data: [DONE]\n\n');

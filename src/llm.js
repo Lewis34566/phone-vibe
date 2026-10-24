@@ -171,7 +171,8 @@ async function* streamDeepSeek({ apiKey, model, system, messages, tools, maxToke
       yield { type: 'content_block_start', index: 99, content_block: { type: 'text', text: '' } };
       yield { type: 'content_block_delta', index: 99, delta: { type: 'text_delta', text: `\n（DeepSeek 出错了：${(e && e.message) || e}，已切换到手机本地模型，能力会弱一些）\n` } };
       yield { type: 'content_block_stop', index: 99 };
-      yield* streamEndpoint({ url: localUrl, auth: null, model: config.localLlmModel, system, messages, tools, maxTokens, signal, attempts: 1 });
+      // LOCAL_LLM_URL 是基地址（如 http://127.0.0.1:11434/v1），要补上 OpenAI 兼容路径
+      yield* streamEndpoint({ url: localUrl + '/chat/completions', auth: null, model: config.localLlmModel, system, messages, tools, maxTokens, signal, attempts: 1 });
       return;
     }
     throw e;
