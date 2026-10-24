@@ -1,6 +1,7 @@
 'use strict';
 // DeepSeek API 流式调用（OpenAI 兼容格式），零依赖
 // 把 DeepSeek 的 chunk 翻译成本系统内部的事件格式（与 Agent 循环解耦）
+const { spawn } = require('child_process');
 const config = require('./config');
 
 // ---------- 消息格式转换：内部格式 -> DeepSeek(OpenAI) 格式 ----------
@@ -160,15 +161,19 @@ async function* streamEndpoint({ url, auth, model, system, messages, tools, maxT
 // 主接口出错时，如果 .env 配了 LOCAL_LLM_URL（手机 Termux 里的 ollama 等本地模型），自动降级
 // _primaryUrl: 仅供测试替换主接口地址
 async function* streamLLM({ apiKey, model, system, messages, tools, maxTokens, signal, _primaryUrl }) {
+  // 主接口限时 12 秒：线路不通时快速进入本地降级，不傻等 DNS 超时
+  const primarySignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(12000)])
+    : AbortSignal.timeout(12000);
   try {
-    yield* streamEndpoint({ url: _primaryUrl || config.llmApiUrl, auth: `Bearer ${apiKey}`, model, system, messages, tools, maxTokens, signal, attempts: 2 });
+    yield* streamEndpoint({ url: _primaryUrl || config.llmApiUrl, auth: `Bearer ${apiKey}`, model, system, messages, tools, maxTokens, signal: primarySignal, attempts: 2 });
   } catch (e) {
     const localUrl = config.localLlmUrl;
     // 主接口任何错误（断网/欠费/Key 失效等）都静默降级到本地模型：
     // 不带工具、用简洁助手提示词——3B 小模型做不了 Agent 任务循环，
     // 直接回答反而可靠。只有用户主动停止才不降级。
     if (localUrl && !(signal && signal.aborted)) {
-      yield* streamEndpoint({
+      const localOpts = {
         url: localUrl + '/chat/completions', // LOCAL_LLM_URL 是基地址，补 OpenAI 兼容路径
         auth: null,
         model: config.localLlmModel,
@@ -178,8 +183,20 @@ async function* streamLLM({ apiKey, model, system, messages, tools, maxTokens, s
         maxTokens,
         signal,
         attempts: 1,
-      });
-      return;
+      };
+      try {
+        yield* streamEndpoint(localOpts);
+        return;
+      } catch (localErr) {
+        // 本地模型服务可能没在跑（Termux 被杀等）：自动拉起 ollama 再试一次
+        if (config.IS_ANDROID) {
+          try { spawn('ollama', ['serve'], { detached: true, stdio: 'ignore' }).unref(); } catch {}
+          await new Promise((r) => setTimeout(r, 5000));
+          yield* streamEndpoint(localOpts);
+          return;
+        }
+        throw localErr;
+      }
     }
     throw e;
   }
